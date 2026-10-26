@@ -869,7 +869,7 @@ var getStore = (input, options) => {
 
 // src/api.mjs
 var NAMES = ["Anthony", "Atef", "Blanka", "Celeste", "Celine", "Elhen", "Ewane", "Gautier", "Hugo", "Maka", "Mehdi", "Mila", "Prosper", "Quentin", "Sasha", "Yvan", "Direction"];
-var ALLOWED = ["inscrits", "emargement", "annule", "annuleBy", "annuleAt"];
+var ALLOWED = ["inscrits", "emargement", "annule", "annuleBy", "annuleAt", "coach"];
 var MAX = 9e5;
 var isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 var json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -933,14 +933,22 @@ var api_default = async (req) => {
         e.at = now;
       }
     }
+    const orig = profOfSlot(m[2]);
+    if (Object.prototype.hasOwnProperty.call(patch, "coach")) {
+      if (typeof patch.coach !== "string" || !NAMES.includes(patch.coach) || patch.coach === "Direction") return json({ ok: false, error: "forbidden" });
+    }
     if (Object.prototype.hasOwnProperty.call(patch, "annule")) {
-      if (who !== "Direction" && who !== profOfSlot(m[2])) return json({ ok: false, error: "forbidden" });
       patch.annuleBy = who;
       patch.annuleAt = now;
     }
     for (let i = 0; i < 6; i++) {
       const cur = await store.getWithMetadata(key, { type: "json" });
       const doc = cur && cur.data ? cur.data : { date: m[1], week: "", slot: m[2] };
+      const eff = doc.coach || orig;
+      const e0 = doc.emargement;
+      if (e0 && e0.coach && e0.direction && who !== "Direction") return json({ ok: false, error: "locked" });
+      const mine = who === "Direction" || who === eff || who === orig;
+      if ((Object.prototype.hasOwnProperty.call(patch, "coach") || Object.prototype.hasOwnProperty.call(patch, "annule")) && !mine) return json({ ok: false, error: "forbidden" });
       doc.date = m[1];
       doc.slot = m[2];
       if (/^\d{4}-\d{2}-\d{2}$/.test(String(base.week || ""))) doc.week = base.week;
