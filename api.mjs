@@ -868,11 +868,12 @@ var getStore = (input, options) => {
 };
 
 // src/api.mjs
-var NAMES = ["Anthony", "Atef", "Blanka", "Celeste", "Celine", "Elhen", "Ewane", "Gautier", "Hugo", "Maka", "Mehdi", "Mila", "Prosper", "Quentin", "Sasha", "Yvan", "Direction"];
+var BASE = ["Anthony", "Atef", "Blanka", "Celeste", "Celine", "Elhen", "Ewane", "Gautier", "Hugo", "Maka", "Mehdi", "Mila", "Prosper", "Quentin", "Sasha", "Yvan"];
 var ALLOWED = ["inscrits", "emargement", "annule", "annuleBy", "annuleAt", "coach"];
 var MAX = 9e5;
 var isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 var json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+var ISO = /^\d{4}-\d{2}-\d{2}$/;
 function deepMerge(a, b) {
   for (const k of Object.keys(b)) {
     if (isObj(b[k]) && isObj(a[k])) deepMerge(a[k], b[k]);
@@ -884,6 +885,20 @@ function profOfSlot(id) {
   const m = /^(?:club|studio)\d-\d{4}-(.+)$/.exec(String(id));
   return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) : "";
 }
+async function getExtras(cfg) {
+  const v = await cfg.get("coaches", { type: "json" });
+  return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+}
+async function fetchRange(store, from, to) {
+  const days = [];
+  for (let d = /* @__PURE__ */ new Date(from + "T12:00:00Z"); d <= /* @__PURE__ */ new Date(to + "T12:00:00Z"); d = new Date(d.getTime() + 864e5)) days.push(d.toISOString().slice(0, 10));
+  const parts = await Promise.all(days.map(async (day) => {
+    const { blobs } = await store.list({ prefix: day + "__" });
+    const got = await Promise.all(blobs.map(async (b) => ({ key: b.key, data: await store.get(b.key, { type: "json" }) })));
+    return got.filter((g) => g.data);
+  }));
+  return [].concat(...parts);
+}
 var api_default = async (req) => {
   if (req.method !== "POST") return json({ ok: false, error: "method" }, 405);
   let r;
@@ -892,24 +907,41 @@ var api_default = async (req) => {
   } catch {
     return json({ ok: false, error: "json" }, 400);
   }
+  const cfg = getStore({ name: "config", consistency: "strong" });
+  const extras = await getExtras(cfg);
+  if (r.action === "coaches") return json({ ok: true, coaches: extras });
   const who = String(r.who || "");
+  const NAMES = BASE.concat(extras, ["Direction"]);
   if (!NAMES.includes(who)) return json({ ok: false, error: "auth" });
   const store = getStore({ name: "seances", consistency: "strong" });
+  if (r.action === "addCoach") {
+    if (who !== "Direction") return json({ ok: false, error: "forbidden" });
+    const name = String(r.name || "").replace(/\s+/g, " ").trim();
+    if (name.length < 2 || name.length > 30 || !/^[\p{L}][\p{L}' -]*$/u.test(name)) return json({ ok: false, error: "name" });
+    if (NAMES.some((n) => n.toLowerCase() === name.toLowerCase())) return json({ ok: false, error: "exists" });
+    const list = extras.concat([name]);
+    await cfg.setJSON("coaches", list);
+    return json({ ok: true, coaches: list });
+  }
   if (r.action === "range") {
     const from = String(r.from || ""), to = String(r.to || "");
-    const re = /^\d{4}-\d{2}-\d{2}$/;
-    if (!re.test(from) || !re.test(to)) return json({ ok: false, error: "range" });
+    if (!ISO.test(from) || !ISO.test(to)) return json({ ok: false, error: "range" });
     const days = (/* @__PURE__ */ new Date(to + "T12:00:00Z") - /* @__PURE__ */ new Date(from + "T12:00:00Z")) / 864e5;
     if (days > 8 && who !== "Direction") return json({ ok: false, error: "forbidden" });
+    if (days > 100) return json({ ok: false, error: "range" });
+    return json({ ok: true, docs: await fetchRange(store, from, to) });
+  }
+  if (r.action === "recap") {
+    const from = String(r.from || ""), to = String(r.to || "");
+    if (!ISO.test(from) || !ISO.test(to)) return json({ ok: false, error: "range" });
+    const days = (/* @__PURE__ */ new Date(to + "T12:00:00Z") - /* @__PURE__ */ new Date(from + "T12:00:00Z")) / 864e5;
     if (days > 40) return json({ ok: false, error: "range" });
+    const all = await fetchRange(store, from, to);
     const docs = [];
-    for (let d = /* @__PURE__ */ new Date(from + "T12:00:00Z"); d <= /* @__PURE__ */ new Date(to + "T12:00:00Z"); d = new Date(d.getTime() + 864e5)) {
-      const day = d.toISOString().slice(0, 10);
-      const { blobs } = await store.list({ prefix: day + "__" });
-      const got = await Promise.all(blobs.map(async (b) => ({ key: b.key, data: await store.get(b.key, { type: "json" }) })));
-      got.forEach((g) => {
-        if (g.data) docs.push(g);
-      });
+    for (const g of all) {
+      const orig = profOfSlot(g.data.slot), eff = g.data.coach || orig;
+      if (eff === who) docs.push(g);
+      else if (orig === who) docs.push({ key: g.key, data: { date: g.data.date, slot: g.data.slot, coach: g.data.coach, annule: !!g.data.annule } });
     }
     return json({ ok: true, docs });
   }
@@ -951,7 +983,7 @@ var api_default = async (req) => {
       if ((Object.prototype.hasOwnProperty.call(patch, "coach") || Object.prototype.hasOwnProperty.call(patch, "annule")) && !mine) return json({ ok: false, error: "forbidden" });
       doc.date = m[1];
       doc.slot = m[2];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(String(base.week || ""))) doc.week = base.week;
+      if (ISO.test(String(base.week || ""))) doc.week = base.week;
       deepMerge(doc, patch);
       if (JSON.stringify(doc).length > MAX) return json({ ok: false, error: "size" });
       const res = await store.setJSON(key, doc, cur && cur.etag ? { onlyIfMatch: cur.etag } : { onlyIfNew: true });
