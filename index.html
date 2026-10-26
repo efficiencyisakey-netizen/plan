@@ -226,6 +226,10 @@ table.dt td.r,table.dt th.r{text-align:right}
 .goal b{color:var(--accent)}
 .drange{display:inline-flex;gap:6px;align-items:center}
 .drange input{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 8px}
+.slotform{gap:10px}
+.slotform label{display:flex;flex-direction:column;gap:4px;font-weight:500}
+.slotform label.row2{flex-direction:row;align-items:center;gap:8px}
+.slotform input[type=text],.slotform input[type=date],.slotform input[type=time],.slotform input[type=number],.slotform select{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 10px;width:100%}
 .inl{display:inline-flex;gap:6px;align-items:center}
 .inl input{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 10px;width:140px}
 .chip.estc{background:color-mix(in srgb,var(--muted) 18%,var(--card));color:var(--muted)}
@@ -266,6 +270,7 @@ td.est{color:var(--muted);font-style:italic}
     <button type="button" class="tbtn" id="recapBtn" hidden>Mon récap</button>
     <span id="dirNav" hidden>
       <form class="inl" id="coachForm"><input id="newCoach" type="text" maxlength="30" placeholder="Nouveau coach" autocomplete="off" aria-label="Prénom du nouveau coach"><button type="submit" class="tbtn">Ajouter un coach</button></form>
+      <button type="button" class="tbtn" id="slotBtn">Ajouter un cours</button>
       <label class="chk" for="showCanc"><input type="checkbox" id="showCanc"> Voir les cours annulés</label>
       <button type="button" class="tbtn" id="dashBtn">Dashboard</button>
       <button type="button" class="tbtn" id="payBtn">Rémunérations</button>
@@ -330,6 +335,7 @@ td.est{color:var(--muted);font-style:italic}
         <div class="cancelbox" id="cancelBox" hidden>
           <button type="button" class="tbtn dng" id="cancelBtn">Annuler ce cours</button>
           <button type="button" class="tbtn" id="restoreBtn" hidden>Rétablir ce cours</button>
+          <button type="button" class="tbtn dng" id="removeSlotBtn" hidden>Retirer ce cours du planning</button>
           <div id="cancelAsk" hidden>
             <p id="cancelMsg" class="paynote"></p>
             <div class="btns"><button type="button" class="pbtn dng" id="cancelYes">Confirmer l'annulation</button><button type="button" class="tbtn" id="cancelNo">Garder le cours</button></div>
@@ -375,6 +381,22 @@ td.est{color:var(--muted);font-style:italic}
     </div>
   </div>
 </div>
+<div class="veil" id="slotVeil" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="slotTitle">
+    <div class="sh-top"><h2 class="sh-title" id="slotTitle">Ajouter un cours</h2><button type="button" class="ibtn" id="slotClose" aria-label="Fermer">&times;</button></div>
+    <form class="sh-body slotform" id="slotForm">
+      <label>Espace<select id="slVenue"><option value="club">Sports Club</option><option value="studio">Studio</option></select></label>
+      <label>Date<input type="date" id="slDate" required></label>
+      <label>Heure<input type="time" id="slTime" required></label>
+      <label>Type de cours<select id="slKind"></select></label>
+      <label id="slKindNewBox" hidden>Nouvel intitulé<input type="text" id="slKindNew" maxlength="30" placeholder="Ex. : BOXE, STRETCHING…" autocomplete="off"></label>
+      <label>Professeur<select id="slProf"></select></label>
+      <label>Nombre de places maximum<input type="number" id="slCap" min="1" max="60" value="20" required></label>
+      <label class="row2" for="slRepeat"><input type="checkbox" id="slRepeat"> Répéter chaque semaine (sinon : cette date seulement)</label>
+      <div class="btns"><button type="submit" class="pbtn">Ajouter le cours</button><button type="button" class="tbtn" id="slotCancel">Annuler</button></div>
+    </form>
+  </div>
+</div>
 <div class="notifs" id="notifs" aria-live="polite"></div>
 <div class="toast" id="toast" hidden></div>
 <script>
@@ -409,16 +431,44 @@ td.est{color:var(--muted);font-style:italic}
       [6,"11:45","PILATES","Mila"],[6,"12:35","PILATES FLOW","Mila"],[6,"14:30","PILATES","Mila"],[6,"15:30","PILATES FLOW","Mila"]
     ]
   };
-  var PLAN={}, SLOTBYID={}, profSet={};
-  Object.keys(RAW).forEach(function(v){
-    PLAN[v]=RAW[v].map(function(r){
-      var hhmm=r[1].replace(":","").padStart(4,"0");
-      profSet[r[3]]=1;
-      var s={id:v+r[0]+"-"+hhmm+"-"+r[3].toLowerCase(),venue:v,day:r[0],time:r[1],kind:r[2],prof:r[3]};
-      SLOTBYID[s.id]=s;
-      return s;
+  var PLAN={club:[],studio:[]}, SLOTBYID={}, profSet={}, CUSTOM=[], EXTRA_KINDS=[];
+  function baseSlots(){
+    var out={club:[],studio:[]};
+    Object.keys(RAW).forEach(function(v){
+      out[v]=RAW[v].map(function(r){
+        var hhmm=r[1].replace(":","").padStart(4,"0");
+        profSet[r[3]]=1;
+        return {id:v+r[0]+"-"+hhmm+"-"+r[3].toLowerCase(),venue:v,day:r[0],time:r[1],kind:r[2],prof:r[3]};
+      });
     });
-  });
+    return out;
+  }
+  var BASE_PLAN=baseSlots();
+  function rebuildPlan(){
+    PLAN={club:BASE_PLAN.club.slice(),studio:BASE_PLAN.studio.slice()};
+    SLOTBYID={};
+    CUSTOM.forEach(function(c){
+      if(c&&PLAN[c.venue])PLAN[c.venue].push({id:c.id,venue:c.venue,day:c.day,time:c.time,kind:c.kind,prof:c.prof,cap:c.cap,custom:true,start:c.start,until:c.until||"",once:!!c.once});
+    });
+    ["club","studio"].forEach(function(v){PLAN[v].forEach(function(s){SLOTBYID[s.id]=s})});
+  }
+  rebuildPlan();
+  function activeOn(s,dk){
+    if(!s.custom)return true;
+    if(s.once)return dk===s.start&&!(s.until&&dk>s.until);
+    return dk>=s.start&&!(s.until&&dk<=s.until&&false)&&(!s.until||dk<=s.until);
+  }
+  function capOf(s){return s.cap||CAP[s.venue]}
+  function kindColor(k){
+    if(KIND[k])return "var("+KIND[k]+")";
+    var hsh=0;for(var i=0;i<k.length;i++)hsh=(hsh*31+k.charCodeAt(i))%360;
+    return "hsl("+hsh+" 62% 68%)";
+  }
+  function allKinds(){
+    var l=Object.keys(KIND);
+    EXTRA_KINDS.forEach(function(k){if(l.indexOf(k)<0)l.push(k)});
+    return l;
+  }
   var BASE_PROFS=Object.keys(profSet).sort(function(a,b){return a.localeCompare(b,"fr")});
   var PROFS=BASE_PROFS.slice();
 
@@ -519,8 +569,8 @@ td.est{color:var(--muted);font-style:italic}
     return {t:t,p:p};
   }
   var THRESH={club:10,studio:5}, EXTRA_PP={club:2,studio:4};
-  function goalText(venue,taken){
-    var t=THRESH[venue],cap=CAP[venue];
+  function goalText(s,taken){
+    var venue=s.venue,t=THRESH[venue],cap=capOf(s);
     if(taken<t){var k=t-taken;return "Encore "+plural(k,"personne","personnes")+" pour atteindre le seuil de la rémunération supplémentaire ("+t+" personnes)."}
     if(taken<cap)return "Seuil atteint ✓ : chaque personne en plus vous rapporte +"+EXTRA_PP[venue]+" € (encore "+plural(cap-taken,"place","places")+").";
     return "Cours complet ✓ : rémunération maximale atteinte.";
@@ -530,12 +580,12 @@ td.est{color:var(--muted);font-style:italic}
     if(!identified()||isDirection()||!loaded||state.view!=="plan"){box.hidden=true;return}
     var date=addDays(state.week,state.day), dk=fmt(date), wd=state.day, rows=[],taken=0,cap=0;
     ["club","studio"].forEach(function(v){PLAN[v].forEach(function(s){
-      if(s.day!==wd)return;
+      if(s.day!==wd||!activeOn(s,dk))return;
       var d=docFor(dk,s);
       if(d&&d.annule)return;
       if(coachOf(s,d)!==state.who)return;
       var t=counts(d).t;
-      rows.push({s:s,t:t});taken+=t;cap+=CAP[v];
+      rows.push({s:s,t:t});taken+=t;cap+=capOf(s);
     })});
     if(!rows.length){box.hidden=true;return}
     rows.sort(function(a,b){return minutes(a.s.time)-minutes(b.s.time)});
@@ -549,8 +599,8 @@ td.est{color:var(--muted);font-style:italic}
     var ul=el("ul");
     rows.forEach(function(r){
       var li=el("li");
-      li.appendChild(el("b",null,r.s.time+" · "+r.s.kind+" ("+(r.s.venue==="club"?"Sports Club":"Studio")+") : "+r.t+"/"+CAP[r.s.venue]));
-      li.appendChild(document.createTextNode(" — "+goalText(r.s.venue,r.t)));
+      li.appendChild(el("b",null,r.s.time+" · "+r.s.kind+" ("+(r.s.venue==="club"?"Sports Club":"Studio")+") : "+r.t+"/"+capOf(r.s)));
+      li.appendChild(document.createTextNode(" — "+goalText(r.s,r.t)));
       ul.appendChild(li);
     });
     box.appendChild(ul);
@@ -577,7 +627,7 @@ td.est{color:var(--muted);font-style:italic}
       head.appendChild(el("span","n",String(date.getDate())));
       col.appendChild(head);
       var list=el("div","slots");
-      var slots=PLAN[state.venue].filter(function(s){return s.day===d}).sort(function(x,y){return minutes(x.time)-minutes(y.time)});
+      var slots=PLAN[state.venue].filter(function(s){return s.day===d&&activeOn(s,dk)}).sort(function(x,y){return minutes(x.time)-minutes(y.time)});
       var shown=0;
       slots.forEach(function(s){
         var cd=docFor(dk,s);
@@ -587,11 +637,11 @@ td.est{color:var(--muted);font-style:italic}
         if(state.mineOnly&&state.who&&state.who!=="Direction"&&!mine)return;
         shown++;
         var b=el("button","slot"+(mine?" mine":"")+(isC?" cancelled":""));b.type="button";
-        b.style.setProperty("--c","var("+(KIND[s.kind]||"--hybrid")+")");
+        b.style.setProperty("--c",kindColor(s.kind));
         b.appendChild(el("span","t",s.time));
         var c=counts(cd);
         var em=cd&&cd.emargement, signed=em&&em.coach;
-        var cnt=el("span","cnt"+(signed?" signed":"")+(c.t>CAP[s.venue]?" full":""),(signed?(em.direction?"✓✓ ":"✓ "):"")+(loaded?c.t:"–")+"/"+CAP[s.venue]);
+        var cnt=el("span","cnt"+(signed?" signed":"")+(c.t>capOf(s)?" full":""),(signed?(em.direction?"✓✓ ":"✓ "):"")+(loaded?c.t:"–")+"/"+capOf(s));
         cnt.title=(c.t?c.p+" présents sur "+c.t+" inscrits":"")+(signed?(em.direction?" · émargé et validé par la direction":" · émargé par le coach"):"");
         b.appendChild(cnt);
         b.appendChild(el("span","k",s.kind));
@@ -679,7 +729,7 @@ td.est{color:var(--muted);font-style:italic}
     var ppl=people(), list=$("list"), w=canEdit();
     paintSub();
     var gn=$("goalNote");
-    if(identified()&&loaded&&!ctxDoc_annule()){gn.textContent=goalText(ctx.slot.venue,ppl.filter(function(p){return !p.lc}).length);gn.hidden=false}else gn.hidden=true;
+    if(identified()&&loaded&&!ctxDoc_annule()){gn.textContent=goalText(ctx.slot,ppl.filter(function(p){return !p.lc}).length);gn.hidden=false}else gn.hidden=true;
     var lk=isLocked(ctxDoc()), ln=$("lockNote");
     ln.hidden=!lk;
     ln.textContent=isDirection()?"Cours verrouillé (émargé par le coach et validé par la direction). Vous seule, la direction, pouvez encore le modifier.":"Cours verrouillé : émargé par le coach et validé par la direction. Seule la direction peut le modifier.";
@@ -687,8 +737,8 @@ td.est{color:var(--muted);font-style:italic}
     var pres=ppl.filter(function(p){return p.p}).length;
     var abs=ppl.filter(function(p){return p.a}).length;
     var taken=ppl.filter(function(p){return !p.lc}).length;
-    $("stIns").textContent=taken+"/"+CAP[ctx.slot.venue]+" places";
-    $("stIns").style.color=taken>CAP[ctx.slot.venue]?"var(--danger)":"";
+    $("stIns").textContent=taken+"/"+capOf(ctx.slot)+" places";
+    $("stIns").style.color=taken>capOf(ctx.slot)?"var(--danger)":"";
     $("stPre").textContent=plural(pres,"présent","présents");
     $("stAbs").hidden=!abs;
     $("stAbs").textContent=plural(abs,"absent","absents");
@@ -723,6 +773,8 @@ td.est{color:var(--muted);font-style:italic}
     var isCan=!!(ctxDoc()&&ctxDoc().annule);
     $("cancelBtn").hidden=cancelAsk||isCan;
     $("restoreBtn").hidden=!(cc&&isCan);
+    $("removeSlotBtn").hidden=!(isDirection()&&ctx.slot.custom);
+    if($("removeSlotBtn").hidden){removeAsk=false;$("removeSlotBtn").textContent="Retirer ce cours du planning"}
     if(cc)$("cancelMsg").textContent="Ce cours disparaîtra du planning pour tout le monde."+(ppl.length?" "+plural(ppl.length,"inscrit est","inscrits sont")+" déjà sur la liste.":"");
     renderEm(ppl,pres);
     if(aid==="editName"||aid==="editSrc"){var re=$(aid);if(re){re.focus();try{if(ss!=null)re.setSelectionRange(ss,se)}catch(x){}}}
@@ -767,7 +819,15 @@ td.est{color:var(--muted);font-style:italic}
     form.appendChild(lab);form.appendChild(inp);form.appendChild(cv);form.appendChild(btns);
     box.appendChild(form);
     $("emRows").appendChild(box);
-    emUI[role]={st:st,form:form,inp:inp,ok:ok};
+    var rmv=el("button","tbtn dng","Retirer ma signature");rmv.type="button";rmv.hidden=true;
+    rmv.onclick=function(){
+      if(!ctx)return;
+      mutate(ctx,function(){var o={};o[role]=null;return {emargement:o}});
+      pads[role].clear();dirty[role]=false;
+      toast("Signature retirée. Vous pouvez émarger à nouveau.");
+    };
+    box.insertBefore(rmv,form);
+    emUI[role]={st:st,form:form,inp:inp,ok:ok,rm:rmv};
   }
   function canSign(role){
     if(!canEdit())return false;
@@ -789,6 +849,9 @@ td.est{color:var(--muted);font-style:italic}
         u.st.appendChild(el("div",null,"Pas encore émargé."));
       }
       u.form.hidden=!canSign(role);
+      var has=!!(rec&&typeof rec.n==="number");
+      u.rm.hidden=!(has&&canEdit()&&(role==="direction"?state.who==="Direction":(state.who==="Direction"||rec.by===state.who)));
+      u.rm.textContent=(role==="coach"&&state.who==="Direction")?"Retirer la signature du coach":"Retirer ma signature";
       u.ok.textContent=rec?"Remplacer mon émargement":"Valider et signer";
       if(!dirty[role])u.inp.value=String(rec&&typeof rec.n==="number"?rec.n:(pres>0?pres:ppl.filter(function(p){return !p.lc}).length));
     });
@@ -861,7 +924,7 @@ td.est{color:var(--muted);font-style:italic}
     var seen={},fresh=[];
     names.forEach(function(n){var k=n.toLowerCase();if(!existing[k]&&!seen[k]){seen[k]=1;fresh.push(n)}});
     if(!fresh.length){toast(names.length?"Ces noms sont déjà dans la liste.":"Écrivez au moins un nom.");return false}
-    var after=people().filter(function(p){return !p.lc}).length+(isLate?0:fresh.length), cap=CAP[ctx.slot.venue];
+    var after=people().filter(function(p){return !p.lc}).length+(isLate?0:fresh.length), cap=capOf(ctx.slot);
     mutate(ctx,function(){var o={};fresh.forEach(function(n){o[newId()]={n:n,p:!!present&&!isLate,a:!!isLate,s:src||"",nw:!!isNew,lc:!!isLate,ab:state.who,ts:Date.now()}});return {inscrits:o}});
     toast(after>cap?"Ajouté, mais le cours dépasse sa capacité ("+after+"/"+cap+").":plural(fresh.length,"inscrit ajouté","inscrits ajoutés")+".");
     return true;
@@ -889,6 +952,46 @@ td.est{color:var(--muted);font-style:italic}
   $("all").onclick=function(){
     var c=ctx;
     mutate(c,function(){var o={};people().forEach(function(p){if(!p.p&&!p.a)o[p.id]={p:true,a:false}});return {inscrits:o}});
+  };
+  function slotFormInit(){
+    var k=$("slKind");k.textContent="";
+    allKinds().forEach(function(n){var o=el("option",null,n);o.value=n;k.appendChild(o)});
+    var on=el("option",null,"+ Nouvel intitulé…");on.value="__new";k.appendChild(on);
+    var p=$("slProf");p.textContent="";
+    PROFS.forEach(function(n){var o=el("option",null,n);o.value=n;p.appendChild(o)});
+    $("slDate").value=fmt(addDays(state.week,state.day));
+    $("slCap").value=String(CAP[$("slVenue").value]);
+    $("slKindNewBox").hidden=true;$("slKindNew").value="";
+  }
+  $("slotBtn").onclick=function(){if(!isDirection())return;slotFormInit();$("slotVeil").hidden=false;document.body.classList.add("lock")};
+  function closeSlot(){$("slotVeil").hidden=true;if(!ctx)document.body.classList.remove("lock")}
+  $("slotClose").onclick=closeSlot;$("slotCancel").onclick=closeSlot;
+  $("slVenue").onchange=function(){$("slCap").value=String(CAP[$("slVenue").value])};
+  $("slKind").onchange=function(){var nw=$("slKind").value==="__new";$("slKindNewBox").hidden=!nw;if(nw)$("slKindNew").focus()};
+  $("slotForm").addEventListener("submit",function(e){
+    e.preventDefault();
+    if(!isDirection())return;
+    var kind=$("slKind").value==="__new"?$("slKindNew").value.replace(/\s+/g," ").trim():$("slKind").value;
+    if(!kind){toast("Indiquez l'intitulé du cours.");return}
+    if(!$("slTime").value){toast("Indiquez l'heure.");return}
+    authed({action:"addSlot",venue:$("slVenue").value,date:$("slDate").value,time:$("slTime").value,kind:kind,prof:$("slProf").value,cap:Number($("slCap").value),repeat:$("slRepeat").checked}).then(function(r){
+      applyConfig(r.config);closeSlot();
+      var d=new Date($("slDate").value+"T12:00:00");
+      state.venue=$("slVenue").value;state.week=mondayOf(d);state.day=(d.getDay()+6)%7;
+      setVenue(state.venue);subscribe();
+      toast("Cours ajouté.");
+    }).catch(function(err){
+      var m=String(err&&err.message||"");
+      if(m!=="auth")toast(m==="kind"?"Intitulé invalide (lettres et chiffres, 2 à 30 caractères).":m==="cap"?"Nombre de places invalide (1 à 60).":m==="slot"?"Date ou heure invalide.":"Ajout impossible. Réessayez.");
+    });
+  });
+  var removeAsk=false;
+  $("removeSlotBtn").onclick=function(){
+    if(!ctx||!isDirection()||!ctx.slot.custom)return;
+    if(!removeAsk){removeAsk=true;$("removeSlotBtn").textContent="Confirmer le retrait (à partir de cette date)";return}
+    removeAsk=false;
+    var s=ctx.slot,dk=ctx.dateKey;
+    authed({action:"removeSlot",id:s.id,from:dk}).then(function(r){applyConfig(r.config);closeSheet();toast("Cours retiré du planning à partir de cette date.")}).catch(function(){toast("Retrait impossible. Réessayez.")});
   };
   $("coachSel").onchange=function(){
     if(!ctx)return;
@@ -951,6 +1054,7 @@ td.est{color:var(--muted);font-style:italic}
       if(document.hidden||pending>0){pollTimer=setTimeout(tick,POLL);return}
       authed({action:"range",from:from,to:to}).then(function(r){
         if(gen!==weekGen||pending>0)return;
+        applyConfig(r.config);
         var m=new Map();
         r.docs.forEach(function(e){m.set(e.key,e.data)});
         docs=m;loaded=true;
@@ -983,7 +1087,7 @@ td.est{color:var(--muted);font-style:italic}
       if(dk>todayKey)break;
       var wd=(dt.getDay()+6)%7;
       ["club","studio"].forEach(function(v){PLAN[v].forEach(function(s){
-        if(s.day!==wd)return;
+        if(s.day!==wd||!activeOn(s,dk))return;
         var d=have[dk+"__"+s.id];
         if(d&&d.annule)return;
         var em=d&&d.emargement,c=em&&em.coach,dr=em&&em.direction;
@@ -1026,7 +1130,7 @@ td.est{color:var(--muted);font-style:italic}
       if(document.hidden){payTimer=setTimeout(tick,POLL_SLOW);return}
       authed({action:"range",from:r[0],to:r[1]}).then(function(res){
         if(gen!==payGen)return;
-        payDocs=res.docs.map(function(e){return e.data});payLoaded=true;renderPay();
+        applyConfig(res.config);payDocs=res.docs.map(function(e){return e.data});payLoaded=true;renderPay();
       }).catch(function(){}).then(function(){
         if(gen===payGen)payTimer=setTimeout(tick,POLL_SLOW);
       });
@@ -1113,7 +1217,7 @@ td.est{color:var(--muted);font-style:italic}
       if(document.hidden){dashTimer=setTimeout(tick,POLL_SLOW);return}
       authed({action:"range",from:r[0],to:r[1]}).then(function(res){
         if(gen!==dashGen)return;
-        dashDocs=res.docs.map(function(e){return e.data});dashLoaded=true;renderDash();
+        applyConfig(res.config);dashDocs=res.docs.map(function(e){return e.data});dashLoaded=true;renderDash();
       }).catch(function(){}).then(function(){
         if(gen===dashGen)dashTimer=setTimeout(tick,POLL_SLOW);
       });
@@ -1127,14 +1231,14 @@ td.est{color:var(--muted);font-style:italic}
       if(dk>todayKey)break;
       var wd=(dt.getDay()+6)%7;
       ["club","studio"].forEach(function(v){PLAN[v].forEach(function(s){
-        if(s.day!==wd)return;
+        if(s.day!==wd||!activeOn(s,dk))return;
         var d=have[dk+"__"+s.id];
         if(d&&d.annule)return;
         var em=d&&d.emargement,c=em&&em.coach,dr=em&&em.direction,st=d&&d.inscrits?statsOf(d):null,att=0;
         if(dr&&typeof dr.n==="number")att=dr.n;
         else if(c&&typeof c.n==="number")att=c.n;
         else if(st)att=(st.pre>0||st.abs-st.lc>0)?st.pre:st.ins-st.lc;
-        out.push({date:dk,s:s,coach:coachOf(s,d),att:att,cap:CAP[v],wd:wd});
+        out.push({date:dk,s:s,coach:coachOf(s,d),att:att,cap:capOf(s),wd:wd});
       })});
     }
     return out;
@@ -1354,7 +1458,7 @@ td.est{color:var(--muted);font-style:italic}
       if(document.hidden){recapTimer=setTimeout(tick,POLL_SLOW);return}
       authed({action:"recap",from:r[0],to:r[1]}).then(function(res){
         if(gen!==recapGen)return;
-        recapDocs=res.docs.map(function(e){return e.data});recapLoaded=true;renderRecap();
+        applyConfig(res.config);recapDocs=res.docs.map(function(e){return e.data});recapLoaded=true;renderRecap();
       }).catch(function(){}).then(function(){
         if(gen===recapGen)recapTimer=setTimeout(tick,POLL_SLOW);
       });
@@ -1494,6 +1598,18 @@ td.est{color:var(--muted);font-style:italic}
     who.value=state.who;
     var sel=$("coachSel");if(sel)sel.textContent="";
   }
+  var cfgSig="";
+  function applyConfig(c){
+    if(!c)return;
+    var sig=JSON.stringify(c);
+    if(sig===cfgSig)return;
+    cfgSig=sig;
+    CUSTOM=c.slots||[];EXTRA_KINDS=c.kinds||[];
+    rebuildPlan();
+    setExtra(c.coaches||[]);
+    renderWeek();
+    if(ctx){var s2=SLOTBYID[ctx.slot.id];if(s2)ctx.slot=s2;renderSheet()}
+  }
   function setExtra(list){
     var all=BASE_PROFS.slice();
     (list||[]).forEach(function(n){if(all.indexOf(n)<0)all.push(n)});
@@ -1501,14 +1617,14 @@ td.est{color:var(--muted);font-style:italic}
     fillWho();renderSheet();
   }
   fillWho();
-  call({action:"coaches"}).then(function(r){if(r&&r.ok)setExtra(r.coaches)}).catch(function(){});
+  call({action:"config"}).then(function(r){if(r&&r.ok)applyConfig(r.config)}).catch(function(){});
   $("coachForm").addEventListener("submit",function(e){
     e.preventDefault();
     if(!isDirection())return;
     var name=$("newCoach").value.replace(/\s+/g," ").trim();
     if(!name){toast("Indiquez le prénom du coach.");return}
     authed({action:"addCoach",name:name}).then(function(r){
-      setExtra(r.coaches);$("newCoach").value="";toast(name+" est ajouté à la liste des coachs.");
+      applyConfig(r.config);$("newCoach").value="";toast(name+" est ajouté à la liste des coachs.");
     }).catch(function(err){
       var m=String(err&&err.message||"");
       if(m!=="auth")toast(m==="exists"?"Ce coach existe déjà.":m==="name"?"Nom invalide (lettres, 2 à 30 caractères).":"Ajout impossible. Réessayez.");
