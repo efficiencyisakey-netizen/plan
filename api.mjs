@@ -869,6 +869,7 @@ var getStore = (input, options) => {
 
 // src/api.mjs
 var BASE = ["Anthony", "Atef", "Blanka", "Celeste", "Celine", "Elhen", "Ewane", "Gautier", "Hugo", "Maka", "Mehdi", "Mila", "Prosper", "Quentin", "Sasha", "Yvan"];
+var BASE_KINDS = ["HYBRID FIT", "RUN & FIT", "HRX", "RUN & PILATES", "YOGA VINYASA", "PILATES", "PILATES FLOW", "YOGA PILATES"];
 var ALLOWED = ["inscrits", "emargement", "annule", "annuleBy", "annuleAt", "coach"];
 var MAX = 9e5;
 var isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
@@ -885,9 +886,20 @@ function profOfSlot(id) {
   const m = /^(?:club|studio)\d-\d{4}-(.+)$/.exec(String(id));
   return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) : "";
 }
-async function getExtras(cfg) {
-  const v = await cfg.get("coaches", { type: "json" });
-  return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+async function getConf(cfg) {
+  const [c, s, k] = await Promise.all([cfg.get("coaches", { type: "json" }), cfg.get("customSlots", { type: "json" }), cfg.get("kinds", { type: "json" })]);
+  return {
+    coaches: Array.isArray(c) ? c.filter((x) => typeof x === "string") : [],
+    slots: Array.isArray(s) ? s.filter(isObj) : [],
+    kinds: Array.isArray(k) ? k.filter((x) => typeof x === "string") : []
+  };
+}
+function origProf(slotId, slots) {
+  if (String(slotId).startsWith("c-")) {
+    const f = slots.find((x) => x.id === slotId);
+    return f ? f.prof : "";
+  }
+  return profOfSlot(slotId);
 }
 async function fetchRange(store, from, to) {
   const days = [];
@@ -908,8 +920,10 @@ var api_default = async (req) => {
     return json({ ok: false, error: "json" }, 400);
   }
   const cfg = getStore({ name: "config", consistency: "strong" });
-  const extras = await getExtras(cfg);
+  const conf = await getConf(cfg);
+  const extras = conf.coaches;
   if (r.action === "coaches") return json({ ok: true, coaches: extras });
+  if (r.action === "config") return json({ ok: true, config: conf });
   const who = String(r.who || "");
   const NAMES = BASE.concat(extras, ["Direction"]);
   if (!NAMES.includes(who)) return json({ ok: false, error: "auth" });
@@ -921,7 +935,40 @@ var api_default = async (req) => {
     if (NAMES.some((n) => n.toLowerCase() === name.toLowerCase())) return json({ ok: false, error: "exists" });
     const list = extras.concat([name]);
     await cfg.setJSON("coaches", list);
-    return json({ ok: true, coaches: list });
+    return json({ ok: true, coaches: list, config: { ...conf, coaches: list } });
+  }
+  if (r.action === "addSlot") {
+    if (who !== "Direction") return json({ ok: false, error: "forbidden" });
+    const venue = String(r.venue || ""), date = String(r.date || ""), time = String(r.time || "");
+    const kind = String(r.kind || "").replace(/\s+/g, " ").trim().toUpperCase();
+    const prof = String(r.prof || ""), cap = Math.round(Number(r.cap));
+    if (!["club", "studio"].includes(venue) || !ISO.test(date) || !/^\d{1,2}:\d{2}$/.test(time)) return json({ ok: false, error: "slot" });
+    if (!(cap >= 1 && cap <= 60)) return json({ ok: false, error: "cap" });
+    if (!BASE.concat(extras).includes(prof)) return json({ ok: false, error: "prof" });
+    if (kind.length < 2 || kind.length > 30 || !/^[\p{L}0-9][\p{L}0-9&'\/ -]*$/u.test(kind)) return json({ ok: false, error: "kind" });
+    if (conf.slots.length >= 300) return json({ ok: false, error: "full" });
+    const day = ((/* @__PURE__ */ new Date(date + "T12:00:00Z")).getUTCDay() + 6) % 7;
+    let id;
+    do {
+      id = "c-" + Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, "x");
+    } while (conf.slots.some((x) => x.id === id));
+    const slot = { id, venue, day, time: time.replace(/^0/, ""), kind, prof, cap, start: date, once: !r.repeat };
+    const slots = conf.slots.concat([slot]);
+    await cfg.setJSON("customSlots", slots);
+    let kinds = conf.kinds;
+    if (!BASE_KINDS.includes(kind) && !kinds.includes(kind)) {
+      kinds = kinds.concat([kind]);
+      await cfg.setJSON("kinds", kinds);
+    }
+    return json({ ok: true, config: { ...conf, slots, kinds } });
+  }
+  if (r.action === "removeSlot") {
+    if (who !== "Direction") return json({ ok: false, error: "forbidden" });
+    const id = String(r.id || ""), from = String(r.from || "");
+    if (!ISO.test(from)) return json({ ok: false, error: "range" });
+    const slots = conf.slots.map((x) => x.id === id ? { ...x, until: new Date((/* @__PURE__ */ new Date(from + "T12:00:00Z")).getTime() - 864e5).toISOString().slice(0, 10) } : x);
+    await cfg.setJSON("customSlots", slots);
+    return json({ ok: true, config: { ...conf, slots } });
   }
   if (r.action === "range") {
     const from = String(r.from || ""), to = String(r.to || "");
@@ -929,7 +976,7 @@ var api_default = async (req) => {
     const days = (/* @__PURE__ */ new Date(to + "T12:00:00Z") - /* @__PURE__ */ new Date(from + "T12:00:00Z")) / 864e5;
     if (days > 8 && who !== "Direction") return json({ ok: false, error: "forbidden" });
     if (days > 100) return json({ ok: false, error: "range" });
-    return json({ ok: true, docs: await fetchRange(store, from, to) });
+    return json({ ok: true, docs: await fetchRange(store, from, to), config: conf });
   }
   if (r.action === "recap") {
     const from = String(r.from || ""), to = String(r.to || "");
@@ -939,16 +986,17 @@ var api_default = async (req) => {
     const all = await fetchRange(store, from, to);
     const docs = [];
     for (const g of all) {
-      const orig = profOfSlot(g.data.slot), eff = g.data.coach || orig;
+      const orig = origProf(g.data.slot, conf.slots), eff = g.data.coach || orig;
       if (eff === who) docs.push(g);
       else if (orig === who) docs.push({ key: g.key, data: { date: g.data.date, slot: g.data.slot, coach: g.data.coach, annule: !!g.data.annule } });
     }
-    return json({ ok: true, docs });
+    return json({ ok: true, docs, config: conf });
   }
   if (r.action === "mutate") {
     const key = String(r.key || "");
-    const m = /^(\d{4}-\d{2}-\d{2})__((?:club|studio)\d-\d{4}-[a-z]+)$/.exec(key);
+    const m = /^(\d{4}-\d{2}-\d{2})__((?:club|studio)\d-\d{4}-[a-z]+|c-[a-z0-9]{3,10})$/.exec(key);
     if (!m) return json({ ok: false, error: "key" });
+    if (m[2].startsWith("c-") && !conf.slots.some((x) => x.id === m[2])) return json({ ok: false, error: "key" });
     const patch = r.patch, base = r.base || {};
     if (!isObj(patch)) return json({ ok: false, error: "patch" });
     for (const k of Object.keys(patch)) if (!ALLOWED.includes(k)) return json({ ok: false, error: "forbidden" });
@@ -957,15 +1005,16 @@ var api_default = async (req) => {
       if (!isObj(patch.emargement)) return json({ ok: false, error: "forbidden" });
       for (const k of Object.keys(patch.emargement)) {
         if (k === "direction" && who !== "Direction") return json({ ok: false, error: "forbidden" });
-        if (k === "coach" && who === "Direction") return json({ ok: false, error: "forbidden" });
+        if (k === "coach" && who === "Direction" && patch.emargement[k] !== null) return json({ ok: false, error: "forbidden" });
         if (k !== "coach" && k !== "direction") return json({ ok: false, error: "forbidden" });
         const e = patch.emargement[k];
+        if (e === null) continue;
         if (!isObj(e) || typeof e.n !== "number") return json({ ok: false, error: "forbidden" });
         e.by = who;
         e.at = now;
       }
     }
-    const orig = profOfSlot(m[2]);
+    const orig = origProf(m[2], conf.slots);
     if (Object.prototype.hasOwnProperty.call(patch, "coach")) {
       if (typeof patch.coach !== "string" || !NAMES.includes(patch.coach) || patch.coach === "Direction") return json({ ok: false, error: "forbidden" });
     }
@@ -979,6 +1028,13 @@ var api_default = async (req) => {
       const eff = doc.coach || orig;
       const e0 = doc.emargement;
       if (e0 && e0.coach && e0.direction && who !== "Direction") return json({ ok: false, error: "locked" });
+      if (patch.emargement) {
+        for (const k of Object.keys(patch.emargement)) {
+          if (patch.emargement[k] !== null) continue;
+          if (k === "direction" && who !== "Direction") return json({ ok: false, error: "forbidden" });
+          if (k === "coach" && who !== "Direction" && !(e0 && e0.coach && e0.coach.by === who)) return json({ ok: false, error: "forbidden" });
+        }
+      }
       const mine = who === "Direction" || who === eff || who === orig;
       if ((Object.prototype.hasOwnProperty.call(patch, "coach") || Object.prototype.hasOwnProperty.call(patch, "annule")) && !mine) return json({ ok: false, error: "forbidden" });
       doc.date = m[1];
