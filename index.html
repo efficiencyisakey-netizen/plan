@@ -216,6 +216,26 @@ table.dt td.r,table.dt th.r{text-align:right}
 .notif .x{margin-left:auto;border:0;background:transparent;color:var(--muted);font-size:18px;line-height:1;padding:0 2px}
 .coachbox{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;color:var(--muted)}
 .coachbox select{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
+.brow.wide{grid-template-columns:minmax(120px,190px) minmax(0,1fr) auto}
+.nudge{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--accent-fill);border-radius:12px;padding:12px 14px;margin-bottom:14px}
+.nudge p{margin:0 0 6px}
+.nudge ul{margin:6px 0 0;padding-left:18px}
+.nudge li{margin:3px 0}
+.nudge .ok{color:var(--good);font-weight:700}
+.goal{color:var(--fg)}
+.goal b{color:var(--accent)}
+.drange{display:inline-flex;gap:6px;align-items:center}
+.drange input{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 8px}
+.inl{display:inline-flex;gap:6px;align-items:center}
+.inl input{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 10px;width:140px}
+.chip.estc{background:color-mix(in srgb,var(--muted) 18%,var(--card));color:var(--muted)}
+td.est{color:var(--muted);font-style:italic}
+@media print{
+  body{background:#fff;color:#000}
+  .wrap>*:not(#recap),.veil,.toast,.notifs,.noprint{display:none!important}
+  #recap{display:block!important}
+  .panel,.kpi{border-color:#999}
+}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:12px;z-index:40;max-width:90%}
 @media (prefers-reduced-motion:no-preference){.slot{transition:border-color .12s}}
 </style>
@@ -243,13 +263,16 @@ table.dt td.r,table.dt th.r{text-align:right}
     <select id="who"><option value="">Choisir mon nom</option></select>
     <span id="whoState"></span>
     <label class="chk" for="mineOnly"><input type="checkbox" id="mineOnly"> Mes cours seulement</label>
+    <button type="button" class="tbtn" id="recapBtn" hidden>Mon récap</button>
     <span id="dirNav" hidden>
+      <form class="inl" id="coachForm"><input id="newCoach" type="text" maxlength="30" placeholder="Nouveau coach" autocomplete="off" aria-label="Prénom du nouveau coach"><button type="submit" class="tbtn">Ajouter un coach</button></form>
       <label class="chk" for="showCanc"><input type="checkbox" id="showCanc"> Voir les cours annulés</label>
       <button type="button" class="tbtn" id="dashBtn">Dashboard</button>
       <button type="button" class="tbtn" id="payBtn">Rémunérations</button>
     </span>
   </div>
   <div class="notice" id="notice" hidden></div>
+  <div class="nudge" id="nudge" hidden></div>
 
   <div id="plan">
     <div class="tabs" id="tabs" role="group" aria-label="Jour"></div>
@@ -262,13 +285,27 @@ table.dt td.r,table.dt th.r{text-align:right}
       <button type="button" class="tbtn" id="dashBack">Retour au planning</button>
       <div class="seg" role="group" aria-label="Période">
         <button type="button" id="dm-day" aria-pressed="true">Jour</button>
+        <button type="button" id="dm-week" aria-pressed="false">Semaine</button>
         <button type="button" id="dm-month" aria-pressed="false">Mois</button>
+        <button type="button" id="dm-range" aria-pressed="false">Période libre</button>
       </div>
+      <span class="drange" id="dashRange" hidden><input type="date" id="dFrom" aria-label="Du"> <span>au</span> <input type="date" id="dTo" aria-label="Au"></span>
       <button type="button" class="ibtn" id="dashPrev" aria-label="Période précédente">&#8249;</button>
       <span class="label" id="dashLabel"></span>
       <button type="button" class="ibtn" id="dashNext" aria-label="Période suivante">&#8250;</button>
     </div>
     <div id="dashBody"></div>
+  </section>
+
+  <section id="recap" hidden>
+    <div class="paynav noprint">
+      <button type="button" class="tbtn" id="recapBack">Retour au planning</button>
+      <button type="button" class="ibtn" id="recapPrev" aria-label="Mois précédent">&#8249;</button>
+      <span class="label" id="recapLabel"></span>
+      <button type="button" class="ibtn" id="recapNext" aria-label="Mois suivant">&#8250;</button>
+      <button type="button" class="tbtn" id="recapPrint">Imprimer / PDF</button>
+    </div>
+    <div id="recapBody"></div>
   </section>
 
   <section id="pay" hidden>
@@ -278,7 +315,7 @@ table.dt td.r,table.dt th.r{text-align:right}
       <span class="label" id="payLabel"></span>
       <button type="button" class="ibtn" id="payNext" aria-label="Mois suivant">&#8250;</button>
     </div>
-    <p class="rules">Sports Club : 40 € jusqu'à 10 personnes, puis 2 € par personne dès la 11e, plafond 60 € (à 20 personnes). Studio : 40 € jusqu'à 5 personnes, puis 4 € par personne dès la 6e, plafond 60 € (à 10 personnes). Tous les cours du mois sont listés, jusqu'à aujourd'hui. Seuls les cours émargés (par le coach ou par la direction) sont comptés dans les montants ; les autres sont indiqués « Non émargé ». Les annulations tardives comptent comme des personnes présentes pour la rémunération. Quand la direction a validé un nombre, c'est ce nombre qui sert au calcul.</p>
+    <p class="rules">Sports Club : 40 € jusqu'à 10 personnes, puis 2 € par personne dès la 11e, plafond 60 € (à 20 personnes). Studio : 40 € jusqu'à 5 personnes, puis 4 € par personne dès la 6e, plafond 60 € (à 10 personnes). Tous les cours du mois sont listés, jusqu'à aujourd'hui. Seuls les cours émargés (par le coach ou par la direction) sont comptés dans le total ; les autres sont indiqués « Non émargé » avec un montant estimé (≈) calculé sur les inscrits, non compté dans le total. Les annulations tardives comptent comme des personnes présentes pour la rémunération. Quand la direction a validé un nombre, c'est ce nombre qui sert au calcul.</p>
     <div id="payBody"></div>
   </section>
 </div>
@@ -319,6 +356,7 @@ table.dt td.r,table.dt th.r{text-align:right}
         <button type="submit" class="pbtn" id="quickBtn">Ajouter un élève</button>
       </form>
       <div class="paynote" id="lockNote" hidden></div>
+      <div class="paynote goal" id="goalNote" hidden></div>
       <ul class="list" id="list"></ul>
       <details class="bulk" id="bulk">
         <summary>Ajouter plusieurs noms d'un coup</summary>
@@ -381,7 +419,8 @@ table.dt td.r,table.dt th.r{text-align:right}
       return s;
     });
   });
-  var PROFS=Object.keys(profSet).sort(function(a,b){return a.localeCompare(b,"fr")});
+  var BASE_PROFS=Object.keys(profSet).sort(function(a,b){return a.localeCompare(b,"fr")});
+  var PROFS=BASE_PROFS.slice();
 
   /* rémunération d'un cours selon l'espace et le nombre de personnes */
   function pay(venue,n){
@@ -431,7 +470,9 @@ table.dt td.r,table.dt th.r{text-align:right}
     payMonth:new Date(now0.getFullYear(),now0.getMonth(),1),
     dashMode:"day",
     showCanc:false,
-    dashDate:new Date(now0.getFullYear(),now0.getMonth(),now0.getDate())
+    dashDate:new Date(now0.getFullYear(),now0.getMonth(),now0.getDate()),
+    dFrom:fmt(addDays(now0,-6)),
+    dTo:fmt(now0)
   };
   var todayKey=fmt(now0);
   var loaded=false, docs=new Map(), ctx=null, pending=0;
@@ -477,7 +518,46 @@ table.dt td.r,table.dt th.r{text-align:right}
     if(m)Object.keys(m).forEach(function(k){if(!m[k].d){if(!m[k].lc)t++;if(m[k].p)p++}});
     return {t:t,p:p};
   }
+  var THRESH={club:10,studio:5}, EXTRA_PP={club:2,studio:4};
+  function goalText(venue,taken){
+    var t=THRESH[venue],cap=CAP[venue];
+    if(taken<t){var k=t-taken;return "Encore "+plural(k,"personne","personnes")+" pour atteindre le seuil de la rémunération supplémentaire ("+t+" personnes)."}
+    if(taken<cap)return "Seuil atteint ✓ : chaque personne en plus vous rapporte +"+EXTRA_PP[venue]+" € (encore "+plural(cap-taken,"place","places")+").";
+    return "Cours complet ✓ : rémunération maximale atteinte.";
+  }
+  function renderNudge(){
+    var box=$("nudge");
+    if(!identified()||isDirection()||!loaded||state.view!=="plan"){box.hidden=true;return}
+    var date=addDays(state.week,state.day), dk=fmt(date), wd=state.day, rows=[],taken=0,cap=0;
+    ["club","studio"].forEach(function(v){PLAN[v].forEach(function(s){
+      if(s.day!==wd)return;
+      var d=docFor(dk,s);
+      if(d&&d.annule)return;
+      if(coachOf(s,d)!==state.who)return;
+      var t=counts(d).t;
+      rows.push({s:s,t:t});taken+=t;cap+=CAP[v];
+    })});
+    if(!rows.length){box.hidden=true;return}
+    rows.sort(function(a,b){return minutes(a.s.time)-minutes(b.s.time)});
+    box.textContent="";
+    var lbl=dk===todayKey?"aujourd'hui":LONG.format(date);
+    var p=el("p");
+    p.appendChild(document.createTextNode("Vous êtes à "));
+    p.appendChild(el("b",null,Math.round(100*taken/cap)+" %"));
+    p.appendChild(document.createTextNode(" de remplissage sur vos cours ("+lbl+" : "+taken+"/"+cap+" places). Faites-en la promotion sur vos réseaux sociaux ! Rappel : vous pouvez offrir jusqu'à 1 invitation par session, offrez-la !"));
+    box.appendChild(p);
+    var ul=el("ul");
+    rows.forEach(function(r){
+      var li=el("li");
+      li.appendChild(el("b",null,r.s.time+" · "+r.s.kind+" ("+(r.s.venue==="club"?"Sports Club":"Studio")+") : "+r.t+"/"+CAP[r.s.venue]));
+      li.appendChild(document.createTextNode(" — "+goalText(r.s.venue,r.t)));
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+    box.hidden=false;
+  }
   function renderWeek(){
+    renderNudge();
     var ws=state.week, we=addDays(ws,6);
     var a=ws.getDate()+(ws.getMonth()!==we.getMonth()?" "+MONTHS[ws.getMonth()]:"");
     $("wlabel").textContent=a+" – "+we.getDate()+" "+MONTHS[we.getMonth()]+" "+we.getFullYear();
@@ -531,6 +611,7 @@ table.dt td.r,table.dt th.r{text-align:right}
   var ICON_NO='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   var ICON_ED='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z"/></svg>';
   var editId=null, editDraft={n:"",s:""}, cancelAsk=false;
+  function ctxDoc_annule(){var d=ctxDoc();return !!(d&&d.annule)}
   function isLocked(d){var e=d&&d.emargement;return !!(e&&e.coach&&e.direction)}
   function canEdit(){return writable()&&(!isLocked(ctxDoc())||isDirection())}
   function canCancel(){return !!ctx&&canEdit()&&(isDirection()||state.who===coachOf(ctx.slot,ctxDoc())||state.who===ctx.slot.prof)}
@@ -597,6 +678,8 @@ table.dt td.r,table.dt th.r{text-align:right}
     if(!ctx)return;
     var ppl=people(), list=$("list"), w=canEdit();
     paintSub();
+    var gn=$("goalNote");
+    if(identified()&&loaded&&!ctxDoc_annule()){gn.textContent=goalText(ctx.slot.venue,ppl.filter(function(p){return !p.lc}).length);gn.hidden=false}else gn.hidden=true;
     var lk=isLocked(ctxDoc()), ln=$("lockNote");
     ln.hidden=!lk;
     ln.textContent=isDirection()?"Cours verrouillé (émargé par le coach et validé par la direction). Vous seule, la direction, pouvez encore le modifier.":"Cours verrouillé : émargé par le coach et validé par la direction. Seule la direction peut le modifier.";
@@ -892,42 +975,34 @@ table.dt td.r,table.dt th.r{text-align:right}
     var dr=em.direction&&typeof em.direction.n==="number"?em.direction:null;
     return pay(s.venue,(dr?dr.n:c.n)+lateOf(d));
   }
-  function aggPay(list,all){
-    var by={},total=0,pend=0,cnt=0;
-    list.forEach(function(d){
-      var em=d.emargement,c=em&&em.coach,s=SLOTBYID[d.slot];
-      var dr=em&&em.direction&&typeof em.direction.n==="number"?em.direction:null;
-      if(!s||(!(c&&typeof c.n==="number")&&!dr))return;
-      if(d.annule)return;
-      var coach=d.coach||((c&&c.by&&c.by!=="Direction")?c.by:s.prof);
-      var lt=lateOf(d), n=(dr?dr.n:(c?c.n:0))+lt, amt=pay(s.venue,n);
-      var g=by[coach]||(by[coach]={rows:[],total:0,pend:0});
-      g.rows.push({date:d.date,s:s,cn:c?c.n:null,dn:dr?dr.n:null,lt:lt,n:n,amt:amt,pend:!dr,st:c?(dr?"ok":"coach"):"dir",pr:statsOf(d).pre});
-      g.total+=amt;if(!dr){g.pend++;pend++}
-      total+=amt;cnt++;
-    });
-    var miss=0;
-    if(all){
-      var have={};list.forEach(function(d){have[d.date+"__"+d.slot]=d});
-      var y=state.payMonth.getFullYear(), mo=state.payMonth.getMonth(), last=new Date(y,mo+1,0).getDate();
-      for(var i=1;i<=last;i++){
-        var dt=new Date(y,mo,i), dk=fmt(dt);
-        if(dk>todayKey)break;
-        var wd=(dt.getDay()+6)%7;
-        ["club","studio"].forEach(function(v){PLAN[v].forEach(function(s){
-          if(s.day!==wd)return;
-          var d=have[dk+"__"+s.id];
-          if(d&&d.annule)return;
-          var em=d&&d.emargement;
-          if(em&&((em.coach&&typeof em.coach.n==="number")||(em.direction&&typeof em.direction.n==="number")))return;
-          var pc0=(d&&d.coach)||s.prof;
-          var g=by[pc0]||(by[pc0]={rows:[],total:0,pend:0});
-          g.rows.push({date:dk,s:s,cn:null,dn:null,lt:d?lateOf(d):0,n:0,amt:0,pend:false,st:"none",pr:d?statsOf(d).pre:0});
-          miss++;
-        })});
-      }
+  function aggPay(list,from,to){
+    var by={},total=0,est=0,pend=0,cnt=0,miss=0;
+    var have={};list.forEach(function(d){have[d.date+"__"+d.slot]=d});
+    for(var dt=new Date(from+"T12:00:00");fmt(dt)<=to;dt=addDays(dt,1)){
+      var dk=fmt(dt);
+      if(dk>todayKey)break;
+      var wd=(dt.getDay()+6)%7;
+      ["club","studio"].forEach(function(v){PLAN[v].forEach(function(s){
+        if(s.day!==wd)return;
+        var d=have[dk+"__"+s.id];
+        if(d&&d.annule)return;
+        var em=d&&d.emargement,c=em&&em.coach,dr=em&&em.direction;
+        var hasC=!!(c&&typeof c.n==="number"),hasD=!!(dr&&typeof dr.n==="number");
+        var lt=d?lateOf(d):0, st=d&&d.inscrits?statsOf(d):null, n, status;
+        if(hasD){n=dr.n+lt;status=hasC?"ok":"dir"}
+        else if(hasC){n=c.n+lt;status="coach"}
+        else{
+          status="est";
+          if(st&&(st.pre>0||st.abs-st.lc>0))n=st.pre+lt;else n=st?st.ins:0;
+        }
+        var amt=pay(s.venue,n), coach=coachOf(s,d);
+        var g=by[coach]||(by[coach]={rows:[],total:0,est:0,pend:0});
+        g.rows.push({date:dk,s:s,cn:hasC?c.n:null,dn:hasD?dr.n:null,lt:lt,n:n,amt:amt,pend:status==="coach",st:status,pr:st?st.pre:0,d:d});
+        if(status==="est"){g.est+=amt;est+=amt;miss++}
+        else{g.total+=amt;total+=amt;cnt++;if(status==="coach"){g.pend++;pend++}}
+      })});
     }
-    return {by:by,total:total,pend:pend,cnt:cnt,miss:miss};
+    return {by:by,total:total,est:est,pend:pend,cnt:cnt,miss:miss};
   }
   function statsOf(d){
     var m=d.inscrits||{}, o={ins:0,pre:0,abs:0,nw:0,lc:0,pre_src:{},ins_src:{}};
@@ -963,22 +1038,22 @@ table.dt td.r,table.dt th.r{text-align:right}
     var body=$("payBody");body.textContent="";
     if(!isDirection()){body.appendChild(el("div","empty","Cette page est réservée à la direction."));return}
     if(!payLoaded){body.appendChild(el("div","empty","Chargement…"));return}
-    var ag=aggPay(payDocs,true);
+    var mr=monthRange(state.payMonth), ag=aggPay(payDocs,mr[0],mr[1]);
     var bar=el("div","sumbar");
     bar.appendChild(el("span","pill",plural(ag.cnt,"cours émargé","cours émargés")));
     bar.appendChild(el("span","pill","Total : "+eur(ag.total)));
     if(ag.pend)bar.appendChild(el("span","pill",plural(ag.pend,"cours à valider","cours à valider")+" par la direction"));
-    if(ag.miss)bar.appendChild(el("span","pill",plural(ag.miss,"cours non émargé","cours non émargés")));
+    if(ag.miss)bar.appendChild(el("span","pill",plural(ag.miss,"cours non émargé","cours non émargés")+" · ≈ "+eur(ag.est)+" estimés"));
     body.appendChild(bar);
     var names=Object.keys(ag.by).sort(function(a,b){return a.localeCompare(b,"fr")});
-    if(!names.length){body.appendChild(el("div","empty","Aucun cours émargé ce mois-ci."));return}
+    if(!names.length){body.appendChild(el("div","empty","Aucun cours ce mois-ci."));return}
     names.forEach(function(nm){
       var g=ag.by[nm];
       var det=el("details","coach");
       var sum=el("summary");
       sum.appendChild(el("span",null,nm));
       sum.appendChild(el("span","sm",plural(g.rows.length,"cours","cours")+(g.pend?" · "+g.pend+" à valider":"")));
-      sum.appendChild(el("span","amt",eur(g.total)));
+      sum.appendChild(el("span","amt",eur(g.total)+(g.est?" + ≈ "+eur(g.est):"")));
       det.appendChild(sum);
       var tw=el("div","tw"), t=el("table","dt");
       var hr=el("tr");
@@ -996,9 +1071,9 @@ table.dt td.r,table.dt th.r{text-align:right}
         tr.appendChild(el("td",null,r.dn!=null?String(r.dn):"—"));
         tr.appendChild(el("td",null,String(r.lt)));
         var stc=el("td");
-        stc.appendChild(el("span","chip "+(r.st==="ok"?"okc":r.st==="none"?"nonec":""),r.st==="ok"?"Validé":r.st==="coach"?"À valider":r.st==="dir"?"Direction seule":"Non émargé"));
+        stc.appendChild(el("span","chip "+(r.st==="ok"?"okc":r.st==="est"?"nonec":""),r.st==="ok"?"Validé":r.st==="coach"?"À valider":r.st==="dir"?"Direction seule":"Non émargé"));
         tr.appendChild(stc);
-        tr.appendChild(el("td","r",r.st==="none"?"—":eur(r.amt)));
+        tr.appendChild(el("td","r"+(r.st==="est"?" est":""),r.st==="est"?"≈ "+eur(r.amt):eur(r.amt)));
         tb.appendChild(tr);
       });
       t.appendChild(tb);tw.appendChild(t);det.appendChild(tw);
@@ -1008,17 +1083,29 @@ table.dt td.r,table.dt th.r{text-align:right}
 
   /* ---------- dashboard ---------- */
   function dashRange(){
-    var d=state.dashDate;
-    if(state.dashMode==="day"){var k=fmt(d);return [k,k]}
+    var d=state.dashDate, md=state.dashMode;
+    if(md==="day"){var k=fmt(d);return [k,k]}
+    if(md==="week"){var m=mondayOf(d);return [fmt(m),fmt(addDays(m,6))]}
+    if(md==="range"){
+      var f=state.dFrom||fmt(now0), t=state.dTo||f;
+      if(f>t){var x=f;f=t;t=x}
+      var lim=fmt(addDays(new Date(f+"T12:00:00"),91));
+      return [f,t>lim?lim:t];
+    }
     return monthRange(d);
+  }
+  function dashLabelText(){
+    var r=dashRange(),a=new Date(r[0]+"T12:00:00"),b=new Date(r[1]+"T12:00:00");
+    if(state.dashMode==="day")return LONGY.format(state.dashDate).replace(/^./,function(c){return c.toUpperCase()});
+    if(state.dashMode==="month")return MONTHLONG.format(state.dashDate);
+    return "Du "+SHORT.format(a)+" au "+SHORT.format(b)+" "+b.getFullYear();
   }
   function subscribeDash(){
     clearTimeout(dashTimer);dashGen++;dashDocs=[];dashLoaded=false;
-    $("dm-day").setAttribute("aria-pressed",String(state.dashMode==="day"));
-    $("dm-month").setAttribute("aria-pressed",String(state.dashMode==="month"));
-    $("dashLabel").textContent=state.dashMode==="day"
-      ?LONGY.format(state.dashDate).replace(/^./,function(c){return c.toUpperCase()})
-      :MONTHLONG.format(state.dashDate);
+    ["day","week","month","range"].forEach(function(m){$("dm-"+m).setAttribute("aria-pressed",String(state.dashMode===m))});
+    $("dashRange").hidden=state.dashMode!=="range";
+    $("dFrom").value=state.dFrom;$("dTo").value=state.dTo;
+    $("dashLabel").textContent=dashLabelText();
     if(state.view!=="dash"||!isDirection())return;
     var gen=dashGen, r=dashRange();
     function tick(){
@@ -1032,6 +1119,88 @@ table.dt td.r,table.dt th.r{text-align:right}
       });
     }
     renderDash();tick();
+  }
+  function occurrences(list,from,to){
+    var have={},out=[];list.forEach(function(d){have[d.date+"__"+d.slot]=d});
+    for(var dt=new Date(from+"T12:00:00");fmt(dt)<=to;dt=addDays(dt,1)){
+      var dk=fmt(dt);
+      if(dk>todayKey)break;
+      var wd=(dt.getDay()+6)%7;
+      ["club","studio"].forEach(function(v){PLAN[v].forEach(function(s){
+        if(s.day!==wd)return;
+        var d=have[dk+"__"+s.id];
+        if(d&&d.annule)return;
+        var em=d&&d.emargement,c=em&&em.coach,dr=em&&em.direction,st=d&&d.inscrits?statsOf(d):null,att=0;
+        if(dr&&typeof dr.n==="number")att=dr.n;
+        else if(c&&typeof c.n==="number")att=c.n;
+        else if(st)att=(st.pre>0||st.abs-st.lc>0)?st.pre:st.ins-st.lc;
+        out.push({date:dk,s:s,coach:coachOf(s,d),att:att,cap:CAP[v],wd:wd});
+      })});
+    }
+    return out;
+  }
+  function groupBy(rows,keyf,labf){
+    var g={};
+    rows.forEach(function(r){var k=keyf(r),o=g[k]||(g[k]={k:k,label:labf(r),n:0,tot:0,cap:0,s:r.s});o.n++;o.tot+=r.att;o.cap+=r.cap});
+    return Object.keys(g).map(function(k){return g[k]});
+  }
+  function avg(o){return o.n?(Math.round(10*o.tot/o.n)/10).toLocaleString("fr-FR"):"0"}
+  function rankPanel(title,items,note){
+    var p=panel(title);
+    if(!items.length||!items[0].tot&&!items.some(function(i){return i.tot})){p.appendChild(el("div","empty","Pas encore de données sur cette période."));return p}
+    items.sort(function(a,b){return b.tot-a.tot||b.n-a.n});
+    var mx=items[0].tot||1;
+    items.forEach(function(o,i){
+      var r=el("div","brow wide");
+      r.appendChild(el("span","nm",(i+1)+". "+o.label));
+      var tr=el("div","track"),f=el("div","fill");
+      f.style.width=Math.round(100*o.tot/mx)+"%";f.style.background="var(--accent-fill)";
+      tr.appendChild(f);r.appendChild(tr);
+      r.appendChild(el("span","vl",o.tot+" pers. · "+plural(o.n,"cours","cours")+" · moy. "+avg(o)+" · "+pct(o.tot,o.cap)));
+      p.appendChild(r);
+    });
+    if(note)p.appendChild(el("div","paynote",note));
+    return p;
+  }
+  function renderRankings(body,from,to){
+    var occ=occurrences(dashDocs,from,to);
+    var h2=el("h2",null,"Classements et comparaisons");h2.style.cssText="font-family:var(--f-display);font-size:15px;text-transform:uppercase;margin:22px 0 10px";
+    body.appendChild(h2);
+    body.appendChild(rankPanel("Classement des coachs",groupBy(occ,function(r){return r.coach},function(r){return r.coach}),"Personnes venues (émargées, sinon présents pointés, sinon inscrits) sur la période. Moyenne par cours et taux de remplissage."));
+    ["club","studio"].forEach(function(v){
+      var rows=occ.filter(function(r){return r.s.venue===v}), nm=v==="club"?"Sports Club":"Studio";
+      body.appendChild(rankPanel("Classement des cours · "+nm,groupBy(rows,function(r){return r.s.kind},function(r){return r.s.kind})));
+      var sl=groupBy(rows,function(r){return r.wd+"|"+r.s.time+"|"+r.s.kind},function(r){return DAYS[r.wd].slice(0,3)+" "+r.s.time+" · "+r.s.kind}).sort(function(a,b){return b.tot-a.tot||b.n-a.n}).slice(0,8);
+      body.appendChild(rankPanel("Meilleurs créneaux · "+nm,sl,"Les 8 créneaux (jour + heure + cours) qui ont attiré le plus de monde."));
+    });
+    var pc=panel("Comparatif par horaire (tous les 7:15, 12:10…)");
+    var tw=el("div","tw"),t=el("table","dt");tw.style.padding="0";t.style.minWidth="520px";
+    var hr=el("tr");[["Heure",""],["Sports Club",""],["Studio",""]].forEach(function(x){hr.appendChild(el("th",x[1],x[0]))});
+    var th=el("thead");th.appendChild(hr);t.appendChild(th);var tb=el("tbody");
+    var times={};occ.forEach(function(r){times[r.s.time]=1});
+    var cell=function(rows){var o={n:0,tot:0,cap:0};rows.forEach(function(r){o.n++;o.tot+=r.att;o.cap+=r.cap});return o.n?o.tot+" pers. · "+plural(o.n,"cours","cours")+" · moy. "+avg(o)+" · "+pct(o.tot,o.cap):"—"};
+    Object.keys(times).sort(function(a,b){return minutes(a)-minutes(b)}).forEach(function(tm){
+      var tr=el("tr");tr.appendChild(el("td",null,tm));
+      tr.appendChild(el("td",null,cell(occ.filter(function(r){return r.s.time===tm&&r.s.venue==="club"}))));
+      tr.appendChild(el("td",null,cell(occ.filter(function(r){return r.s.time===tm&&r.s.venue==="studio"}))));
+      tb.appendChild(tr);
+    });
+    if(!tb.children.length){pc.appendChild(el("div","empty","Pas encore de données sur cette période."))}
+    else{t.appendChild(tb);tw.appendChild(t);pc.appendChild(tw)}
+    body.appendChild(pc);
+    // par jour de la semaine
+    var pj=panel("Comparatif par jour de la semaine");
+    var tw2=el("div","tw"),t2=el("table","dt");tw2.style.padding="0";t2.style.minWidth="520px";
+    var hr2=el("tr");[["Jour",""],["Sports Club",""],["Studio",""]].forEach(function(x){hr2.appendChild(el("th",x[1],x[0]))});
+    var th2=el("thead");th2.appendChild(hr2);t2.appendChild(th2);var tb2=el("tbody");
+    for(var w=0;w<7;w++)(function(w){
+      var a=occ.filter(function(r){return r.wd===w&&r.s.venue==="club"}),b=occ.filter(function(r){return r.wd===w&&r.s.venue==="studio"});
+      if(!a.length&&!b.length)return;
+      var tr=el("tr");tr.appendChild(el("td",null,DAYS[w]));tr.appendChild(el("td",null,cell(a)));tr.appendChild(el("td",null,cell(b)));tb2.appendChild(tr);
+    })(w);
+    if(!tb2.children.length){pj.appendChild(el("div","empty","Pas encore de données sur cette période."))}
+    else{t2.appendChild(tb2);tw2.appendChild(t2);pj.appendChild(tw2)}
+    body.appendChild(pj);
   }
   function kpi(label,value,sub){
     var k=el("div","kpi");
@@ -1064,14 +1233,14 @@ table.dt td.r,table.dt th.r{text-align:right}
       Object.keys(st.pre_src).forEach(function(s){pd.src[s]=(pd.src[s]||0)+st.pre_src[s]});
       if(st.ins||(d.emargement&&d.emargement.coach))rows.push({d:d,st:st});
     });
-    var ag=aggPay(dashDocs);
+    var dr0=dashRange(), ag=aggPay(dashDocs,dr0[0],dr0[1]);
     var kp=el("div","kpis");
     kp.appendChild(kpi("Présents",String(tPre),"sur "+plural(tIns,"inscrit","inscrits")+" · "+pct(tPre,tIns)));
     kp.appendChild(kpi("Absents",String(tAbs),tIns?pct(tAbs,tIns)+" des inscrits":""));
     kp.appendChild(kpi("Nouveaux",String(tNew),tIns?pct(tNew,tIns)+" des inscrits":""));
     kp.appendChild(kpi("Annulations tardives",String(tLate),tIns?pct(tLate,tIns)+" des inscrits":""));
     kp.appendChild(kpi("Cours avec inscrits",String(rows.filter(function(r){return r.st.ins}).length),plural(ag.cnt,"cours émargé","cours émargés")));
-    kp.appendChild(kpi("Rémunération coachs",eur(ag.total),ag.pend?plural(ag.pend,"cours à valider","cours à valider"):"cours émargés uniquement"));
+    kp.appendChild(kpi("Rémunération coachs",eur(ag.total+ag.est),ag.est?"dont ≈ "+eur(ag.est)+" estimés (non émargés)":(ag.pend?plural(ag.pend,"cours à valider","cours à valider"):"cours émargés")));
     body.appendChild(kp);
 
     var ps=panel("Présents par source");
@@ -1095,14 +1264,15 @@ table.dt td.r,table.dt th.r{text-align:right}
     }
     body.appendChild(ps);
 
-    if(state.dashMode==="month"){
+    if(dr0[0]!==dr0[1]){
       var pc=panel("Présents par jour");
       pc.appendChild(legend());
-      var y=state.dashDate.getFullYear(), m=state.dashDate.getMonth(), nd=new Date(y,m+1,0).getDate(), mx=1;
-      for(var i=1;i<=nd;i++){var pd0=perDay[fmt(new Date(y,m,i))];if(pd0&&pd0.tot>mx)mx=pd0.tot}
+      var dks=[],mx=1;
+      for(var dd=new Date(dr0[0]+"T12:00:00");fmt(dd)<=dr0[1];dd=addDays(dd,1))dks.push(fmt(dd));
+      dks.forEach(function(k){var p0=perDay[k];if(p0&&p0.tot>mx)mx=p0.tot});
       var ch=el("div","dchart");
-      for(var j=1;j<=nd;j++)(function(j){
-        var pd=perDay[fmt(new Date(y,m,j))]||{tot:0,src:{}};
+      dks.forEach(function(dk0){
+        var j=+dk0.slice(8), pd=perDay[dk0]||{tot:0,src:{}};
         var col=el("div","dcol");
         col.appendChild(el("div","dval",pd.tot?String(pd.tot):""));
         var stk=el("div","dstack");
@@ -1116,7 +1286,7 @@ table.dt td.r,table.dt th.r{text-align:right}
         col.appendChild(stk);
         col.appendChild(el("div","dlab",String(j)));
         ch.appendChild(col);
-      })(j);
+      });
       pc.appendChild(ch);
       body.appendChild(pc);
     }else{
@@ -1135,7 +1305,7 @@ table.dt td.r,table.dt th.r{text-align:right}
           tr.appendChild(el("td",null,s.time));
           tr.appendChild(el("td",null,s.kind+(s.venue==="studio"?" (Studio)":"")));
           var c=r.d.emargement&&r.d.emargement.coach;
-          tr.appendChild(el("td",null,r.d.coach||((c&&c.by&&c.by!=="Direction")?c.by:s.prof)));
+          tr.appendChild(el("td",null,coachOf(s,r.d)));
           tr.appendChild(el("td","r",r.st.pre+"/"+r.st.ins));
           tr.appendChild(el("td","r",String(r.st.abs)));
           var am=emAmount(r.d);
@@ -1148,39 +1318,127 @@ table.dt td.r,table.dt th.r{text-align:right}
     }
 
     var pr=panel("Rémunération des coachs");
-    var names=Object.keys(ag.by).sort(function(a,b){return ag.by[b].total-ag.by[a].total});
-    if(!names.length){pr.appendChild(el("div","empty","Aucun cours émargé sur cette période."))}
+    var names=Object.keys(ag.by).sort(function(a,b){return (ag.by[b].total+ag.by[b].est)-(ag.by[a].total+ag.by[a].est)});
+    if(!names.length){pr.appendChild(el("div","empty","Aucun cours sur cette période."))}
     else{
-      var mxp=ag.by[names[0]].total||1;
+      var mxp=(ag.by[names[0]].total+ag.by[names[0]].est)||1;
       names.forEach(function(nm){
         var g=ag.by[nm];
         var r=el("div","brow");
         r.appendChild(el("span","nm",nm));
         var tr=el("div","track"), f=el("div","fill");
-        f.style.width=Math.round(100*g.total/mxp)+"%";f.style.background="var(--accent-fill)";
+        f.style.width=Math.round(100*(g.total+g.est)/mxp)+"%";f.style.background="var(--accent-fill)";
         tr.appendChild(f);r.appendChild(tr);
-        r.appendChild(el("span","vl",eur(g.total)+" · "+plural(g.rows.length,"cours","cours")));
+        r.appendChild(el("span","vl",eur(g.total+g.est)+(g.est?" (≈ "+eur(g.est)+" estimés)":"")+" · "+plural(g.rows.length,"cours","cours")));
         pr.appendChild(r);
       });
       var tt=el("div","brow");
       tt.appendChild(el("span","nm","Total"));tt.appendChild(el("span"));
-      tt.appendChild(el("span","vl",eur(ag.total)));
+      tt.appendChild(el("span","vl",eur(ag.total+ag.est)));
       pr.appendChild(tt);
+      if(ag.est)pr.appendChild(el("div","paynote","Montants estimés (≈) pour les cours non émargés : calculés sur les inscrits (ou sur les présents pointés), en attendant l'émargement."));
       if(ag.pend)pr.appendChild(el("div","paynote",plural(ag.pend,"cours est","cours sont")+" en attente de validation par la direction : le nombre du coach est utilisé en attendant."));
     }
     body.appendChild(pr);
+    renderRankings(body,dr0[0],dr0[1]);
   }
 
+  var recapDocs=[], recapLoaded=false, recapGen=0, recapTimer=null;
+  state.recapMonth=new Date(now0.getFullYear(),now0.getMonth(),1);
+  function subscribeRecap(){
+    clearTimeout(recapTimer);recapGen++;recapDocs=[];recapLoaded=false;
+    if(state.view!=="recap"||!identified()||isDirection())return;
+    var gen=recapGen, r=monthRange(state.recapMonth);
+    function tick(){
+      if(gen!==recapGen)return;
+      if(document.hidden){recapTimer=setTimeout(tick,POLL_SLOW);return}
+      authed({action:"recap",from:r[0],to:r[1]}).then(function(res){
+        if(gen!==recapGen)return;
+        recapDocs=res.docs.map(function(e){return e.data});recapLoaded=true;renderRecap();
+      }).catch(function(){}).then(function(){
+        if(gen===recapGen)recapTimer=setTimeout(tick,POLL_SLOW);
+      });
+    }
+    renderRecap();tick();
+  }
+  function renderRecap(){
+    $("recapLabel").textContent=MONTHLONG.format(state.recapMonth);
+    var body=$("recapBody");body.textContent="";
+    if(!identified()||isDirection())return;
+    if(!recapLoaded){body.appendChild(el("div","empty","Chargement…"));return}
+    var mr=monthRange(state.recapMonth), ag=aggPay(recapDocs,mr[0],mr[1]), g=ag.by[state.who];
+    var head=el("div","panel");
+    head.appendChild(el("h3",null,"Récapitulatif de "+state.who+" · "+MONTHLONG.format(state.recapMonth)));
+    head.appendChild(el("div","paynote","Galeries Lafayette Sports Club et Studio · édité le "+new Date().toLocaleDateString("fr-FR")));
+    body.appendChild(head);
+    if(!g||!g.rows.length){body.appendChild(el("div","empty","Aucun cours ce mois-ci."));return}
+    var billed=0,wait=0,people=0,nb=0;
+    g.rows.forEach(function(r){
+      nb++;
+      if(r.st==="ok"||r.st==="dir"){billed+=r.amt;people+=r.n}
+      else{wait+=r.amt;if(r.st==="coach")people+=r.n}
+    });
+    var kp=el("div","kpis");
+    kp.appendChild(kpi("Cours",String(nb),"ce mois-ci, jusqu'à aujourd'hui"));
+    kp.appendChild(kpi("Personnes",String(people),"cours émargés (annulations tardives incluses)"));
+    kp.appendChild(kpi("Rémunération à facturer",eur(billed),"cours validés par la direction"));
+    kp.appendChild(kpi("En attente",eur(wait),"à valider ou non émargés (≈)"));
+    body.appendChild(kp);
+    var rows=g.rows.slice().sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:minutes(a.s.time)-minutes(b.s.time)});
+    // par jour
+    var pdv=panel("Récap par jour"), days={}, order=[];
+    rows.forEach(function(r){var o=days[r.date]||(days[r.date]={n:0,p:0,a:0,w:0},order.push(r.date),days[r.date]);o.n++;o.p+=r.n;if(r.st==="ok"||r.st==="dir")o.a+=r.amt;else o.w+=r.amt});
+    var tw1=el("div","tw"),t1=el("table","dt");t1.style.minWidth="420px";tw1.style.padding="0";
+    var h1=el("tr");[["Jour",""],["Cours","r"],["Personnes","r"],["Rémunération","r"]].forEach(function(x){h1.appendChild(el("th",x[1],x[0]))});
+    var th1=el("thead");th1.appendChild(h1);t1.appendChild(th1);var tb1=el("tbody");
+    order.forEach(function(dk){
+      var o=days[dk],tr=el("tr");
+      tr.appendChild(el("td",null,SHORT.format(new Date(dk+"T12:00:00"))));
+      tr.appendChild(el("td","r",String(o.n)));
+      tr.appendChild(el("td","r",String(o.p)));
+      tr.appendChild(el("td","r",eur(o.a+o.w)+(o.w?" (dont ≈ "+eur(o.w)+" en attente)":"")));
+      tb1.appendChild(tr);
+    });
+    t1.appendChild(tb1);tw1.appendChild(t1);pdv.appendChild(tw1);body.appendChild(pdv);
+    // cours par cours
+    var pdc=panel("Cours par cours");
+    var tw2=el("div","tw"),t2=el("table","dt");t2.style.minWidth="620px";tw2.style.padding="0";
+    var h2=el("tr");[["Date",""],["Heure",""],["Cours",""],["Espace",""],["Personnes","r"],["Statut",""],["Rémunération","r"]].forEach(function(x){h2.appendChild(el("th",x[1],x[0]))});
+    var th2=el("thead");th2.appendChild(h2);t2.appendChild(th2);var tb2=el("tbody");
+    rows.forEach(function(r){
+      var tr=el("tr"),e=r.st==="est";
+      tr.appendChild(el("td",null,SHORT.format(new Date(r.date+"T12:00:00"))));
+      tr.appendChild(el("td",null,r.s.time));
+      tr.appendChild(el("td",null,r.s.kind));
+      tr.appendChild(el("td",null,r.s.venue==="club"?"Sports Club":"Studio"));
+      tr.appendChild(el("td","r"+(e?" est":""),(e?"≈ ":"")+r.n+(r.lt?" (dont "+r.lt+" ann. tard.)":"")));
+      var sc=el("td");sc.appendChild(el("span","chip "+((r.st==="ok"||r.st==="dir")?"okc":e?"estc":""),(r.st==="ok"||r.st==="dir")?"Validé":r.st==="coach"?"En attente de validation":"Non émargé"));
+      tr.appendChild(sc);
+      tr.appendChild(el("td","r"+(e?" est":""),(e?"≈ ":"")+eur(r.amt)));
+      tb2.appendChild(tr);
+    });
+    t2.appendChild(tb2);tw2.appendChild(t2);pdc.appendChild(tw2);
+    pdc.appendChild(el("div","paynote","Total à facturer (cours validés) : "+eur(billed)+(wait?" · en attente : "+eur(wait):"")));
+    body.appendChild(pdc);
+  }
   function showView(v){
     if((v==="pay"||v==="dash")&&!isDirection())v="plan";
+    if(v==="recap"&&(!identified()||isDirection()))v="plan";
     state.view=v;
     $("plan").hidden=v!=="plan";
     $("ctl").hidden=v!=="plan";
     $("pay").hidden=v!=="pay";
     $("dash").hidden=v!=="dash";
+    $("recap").hidden=v!=="recap";
     $("dirNav").hidden=!isDirection()||v!=="plan";
-    subscribePay();subscribeDash();
+    $("recapBtn").hidden=!(identified()&&!isDirection()&&v==="plan");
+    subscribePay();subscribeDash();subscribeRecap();
   }
+  $("recapBtn").onclick=function(){showView("recap")};
+  $("recapBack").onclick=function(){showView("plan")};
+  $("recapPrev").onclick=function(){state.recapMonth=new Date(state.recapMonth.getFullYear(),state.recapMonth.getMonth()-1,1);subscribeRecap()};
+  $("recapNext").onclick=function(){state.recapMonth=new Date(state.recapMonth.getFullYear(),state.recapMonth.getMonth()+1,1);subscribeRecap()};
+  $("recapPrint").onclick=function(){window.print()};
   $("payBtn").onclick=function(){showView("pay")};
   $("showCanc").onchange=function(){state.showCanc=$("showCanc").checked;renderWeek()};
   $("dashBtn").onclick=function(){showView("dash")};
@@ -1189,8 +1447,13 @@ table.dt td.r,table.dt th.r{text-align:right}
   $("payPrev").onclick=function(){state.payMonth=new Date(state.payMonth.getFullYear(),state.payMonth.getMonth()-1,1);subscribePay()};
   $("payNext").onclick=function(){state.payMonth=new Date(state.payMonth.getFullYear(),state.payMonth.getMonth()+1,1);subscribePay()};
   function dashStep(n){
-    var d=state.dashDate;
-    state.dashDate=state.dashMode==="day"?addDays(d,n):new Date(d.getFullYear(),d.getMonth()+n,1);
+    var d=state.dashDate,md=state.dashMode;
+    if(md==="day")state.dashDate=addDays(d,n);
+    else if(md==="week")state.dashDate=addDays(d,7*n);
+    else if(md==="range"){
+      var r=dashRange(),span=Math.round((new Date(r[1]+"T12:00:00")-new Date(r[0]+"T12:00:00"))/86400000)+1;
+      state.dFrom=fmt(addDays(new Date(r[0]+"T12:00:00"),n*span));state.dTo=fmt(addDays(new Date(r[1]+"T12:00:00"),n*span));
+    }else state.dashDate=new Date(d.getFullYear(),d.getMonth()+n,1);
     subscribeDash();
   }
   $("dashPrev").onclick=function(){dashStep(-1)};
@@ -1200,11 +1463,12 @@ table.dt td.r,table.dt th.r{text-align:right}
     var d=state.dashDate, t=new Date();
     state.dashMode=m;
     if(m==="month")state.dashDate=new Date(d.getFullYear(),d.getMonth(),1);
-    else state.dashDate=(d.getFullYear()===t.getFullYear()&&d.getMonth()===t.getMonth())?new Date(t.getFullYear(),t.getMonth(),t.getDate()):new Date(d.getFullYear(),d.getMonth(),1);
+    else if(m==="day")state.dashDate=(d.getFullYear()===t.getFullYear()&&d.getMonth()===t.getMonth())?new Date(t.getFullYear(),t.getMonth(),t.getDate()):new Date(d.getFullYear(),d.getMonth(),1);
     subscribeDash();
   }
-  $("dm-day").onclick=function(){setDashMode("day")};
-  $("dm-month").onclick=function(){setDashMode("month")};
+  ["day","week","month","range"].forEach(function(m){$("dm-"+m).onclick=function(){setDashMode(m)}});
+  $("dFrom").onchange=function(){if($("dFrom").value){state.dFrom=$("dFrom").value;subscribeDash()}};
+  $("dTo").onchange=function(){if($("dTo").value){state.dTo=$("dTo").value;subscribeDash()}};
 
   /* ---------- commandes ---------- */
   function setVenue(v){
@@ -1223,8 +1487,51 @@ table.dt td.r,table.dt th.r{text-align:right}
   };
 
   var who=$("who");
-  PROFS.concat(["Direction"]).forEach(function(p){var o=el("option",null,p);o.value=p;who.appendChild(o)});
-  who.value=state.who;
+  function fillWho(){
+    who.textContent="";
+    var o0=el("option",null,"Choisir mon nom");o0.value="";who.appendChild(o0);
+    PROFS.concat(["Direction"]).forEach(function(p){var o=el("option",null,p);o.value=p;who.appendChild(o)});
+    who.value=state.who;
+    var sel=$("coachSel");if(sel)sel.textContent="";
+  }
+  function setExtra(list){
+    var all=BASE_PROFS.slice();
+    (list||[]).forEach(function(n){if(all.indexOf(n)<0)all.push(n)});
+    PROFS=all.sort(function(a,b){return a.localeCompare(b,"fr")});
+    fillWho();renderSheet();
+  }
+  fillWho();
+  call({action:"coaches"}).then(function(r){if(r&&r.ok)setExtra(r.coaches)}).catch(function(){});
+  $("coachForm").addEventListener("submit",function(e){
+    e.preventDefault();
+    if(!isDirection())return;
+    var name=$("newCoach").value.replace(/\s+/g," ").trim();
+    if(!name){toast("Indiquez le prénom du coach.");return}
+    authed({action:"addCoach",name:name}).then(function(r){
+      setExtra(r.coaches);$("newCoach").value="";toast(name+" est ajouté à la liste des coachs.");
+    }).catch(function(err){
+      var m=String(err&&err.message||"");
+      if(m!=="auth")toast(m==="exists"?"Ce coach existe déjà.":m==="name"?"Nom invalide (lettres, 2 à 30 caractères).":"Ajout impossible. Réessayez.");
+    });
+  });
+  function pushNotif(title,text,onclick,ms){
+    var box=$("notifs"),n=el("div","notif");n.setAttribute("role","button");n.tabIndex=0;
+    var t=el("div");t.appendChild(el("b",null,title));t.appendChild(document.createTextNode(text));n.appendChild(t);
+    var x=el("button","x","×");x.type="button";x.setAttribute("aria-label","Fermer");
+    function close(){if(n.parentNode)n.parentNode.removeChild(n)}
+    x.onclick=function(e){e.stopPropagation();close()};n.appendChild(x);
+    n.onclick=function(){close();if(onclick)onclick()};
+    box.appendChild(n);setTimeout(close,ms||20000);
+  }
+  function weeklyRecap(){
+    if(!isDirection()||now0.getDay()!==1)return;
+    var k="psc-recap-"+todayKey;
+    if(load(k))return;
+    store(k,"1");
+    pushNotif("Récap de la semaine dernière","Cliquez pour voir les classements, les chiffres et les rémunérations de la semaine écoulée.",function(){
+      state.dashMode="week";state.dashDate=addDays(mondayOf(now0),-7);showView("dash");
+    },120000);
+  }
   function paintWho(){
     var id=identified();
     $("whoState").textContent=id?"Connecté":"";
@@ -1232,8 +1539,11 @@ table.dt td.r,table.dt th.r{text-align:right}
     var n=$("notice");
     n.textContent="Choisissez votre nom pour voir les listes et faire l'appel.";
     n.hidden=id;
-    if(state.view!=="plan"&&!isDirection())showView("plan");
+    $("recapBtn").hidden=!(id&&!isDirection()&&state.view==="plan");
+    if((state.view==="pay"||state.view==="dash")&&!isDirection())showView("plan");
+    if(state.view==="recap"&&(!id||isDirection()))showView("plan");
     renderSheet();
+    weeklyRecap();
   }
   who.onchange=function(){
     stopPolling();resetData();
