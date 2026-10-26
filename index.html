@@ -210,6 +210,12 @@ table.dt td.r,table.dt th.r{text-align:right}
 .dstack{height:150px;width:100%;display:flex;flex-direction:column-reverse;justify-content:flex-start}
 .dstack div{width:100%}
 .dlab{font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.notifs{position:fixed;top:12px;right:12px;z-index:50;display:flex;flex-direction:column;gap:8px;max-width:min(360px,calc(100% - 24px))}
+.notif{background:var(--card);color:var(--fg);border:1px solid var(--line);border-left:5px solid var(--accent-fill);border-radius:12px;padding:10px 12px;box-shadow:0 6px 22px rgba(0,0,0,.25);display:flex;gap:10px;align-items:flex-start;cursor:pointer;text-align:left}
+.notif b{display:block}
+.notif .x{margin-left:auto;border:0;background:transparent;color:var(--muted);font-size:18px;line-height:1;padding:0 2px}
+.coachbox{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;color:var(--muted)}
+.coachbox select{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 10px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:12px;z-index:40;max-width:90%}
 @media (prefers-reduced-motion:no-preference){.slot{transition:border-color .12s}}
 </style>
@@ -283,6 +289,7 @@ table.dt td.r,table.dt th.r{text-align:right}
       <div>
         <h2 class="sh-title" id="shTitle"></h2>
         <div class="sh-sub" id="shSub"></div>
+        <div class="coachbox" id="coachBox" hidden><label for="coachSel">Coach de ce cours</label><select id="coachSel"></select></div>
         <div class="cancelbox" id="cancelBox" hidden>
           <button type="button" class="tbtn dng" id="cancelBtn">Annuler ce cours</button>
           <button type="button" class="tbtn" id="restoreBtn" hidden>Rétablir ce cours</button>
@@ -306,11 +313,12 @@ table.dt td.r,table.dt th.r{text-align:right}
         <input type="text" id="quickName" placeholder="Nom et prénom" autocomplete="off" aria-label="Nom et prénom de l'élève">
          
         <select id="quickSrc" aria-label="Source"><option value="">Source</option><option value="ClassPass">ClassPass</option><option value="Wellpass">Wellpass</option><option value="Erdv">Erdv</option><option value="Invité">Invité</option></select>
-        <label for="quickPresent"><input type="checkbox" id="quickPresent" checked> Présent</label>
+        <label for="quickPresent"><input type="checkbox" id="quickPresent"> Présent</label>
         <label for="quickNew"><input type="checkbox" id="quickNew"> Nouveau</label>
         <label for="quickLate"><input type="checkbox" id="quickLate"> Annulation tardive</label>
         <button type="submit" class="pbtn" id="quickBtn">Ajouter un élève</button>
       </form>
+      <div class="paynote" id="lockNote" hidden></div>
       <ul class="list" id="list"></ul>
       <details class="bulk" id="bulk">
         <summary>Ajouter plusieurs noms d'un coup</summary>
@@ -329,6 +337,7 @@ table.dt td.r,table.dt th.r{text-align:right}
     </div>
   </div>
 </div>
+<div class="notifs" id="notifs" aria-live="polite"></div>
 <div class="toast" id="toast" hidden></div>
 <script>
 (function(){
@@ -462,6 +471,7 @@ table.dt td.r,table.dt th.r{text-align:right}
 
   /* ---------- rendu du planning ---------- */
   function docFor(dateKey,slot){return docs.get(dateKey+"__"+slot.id)}
+  function coachOf(s,d){return (d&&d.coach)||s.prof}
   function counts(d){
     var t=0,p=0,m=d&&d.inscrits;
     if(m)Object.keys(m).forEach(function(k){if(!m[k].d){if(!m[k].lc)t++;if(m[k].p)p++}});
@@ -493,7 +503,7 @@ table.dt td.r,table.dt th.r{text-align:right}
         var cd=docFor(dk,s);
         var isC=!!(cd&&cd.annule);
         if(isC&&!(state.showCanc&&isDirection()))return;
-        var mine=state.who&&s.prof===state.who;
+        var mine=state.who&&coachOf(s,cd)===state.who;
         if(state.mineOnly&&state.who&&state.who!=="Direction"&&!mine)return;
         shown++;
         var b=el("button","slot"+(mine?" mine":"")+(isC?" cancelled":""));b.type="button";
@@ -505,8 +515,8 @@ table.dt td.r,table.dt th.r{text-align:right}
         cnt.title=(c.t?c.p+" présents sur "+c.t+" inscrits":"")+(signed?(em.direction?" · émargé et validé par la direction":" · émargé par le coach"):"");
         b.appendChild(cnt);
         b.appendChild(el("span","k",s.kind));
-        b.appendChild(el("span","p",s.prof));
-        b.setAttribute("aria-label",s.kind+", "+s.time+", "+s.prof+(c.t?", "+c.t+" inscrits":"")+(signed?", émargé":""));
+        b.appendChild(el("span","p",coachOf(s,cd)+(cd&&cd.coach&&cd.coach!==s.prof?" (remplace "+s.prof+")":"")));
+        b.setAttribute("aria-label",s.kind+", "+s.time+", "+coachOf(s,cd)+(c.t?", "+c.t+" inscrits":"")+(signed?", émargé":""));
         b.onclick=function(){openSheet(s,date,dk)};
         list.appendChild(b);
       });
@@ -521,7 +531,18 @@ table.dt td.r,table.dt th.r{text-align:right}
   var ICON_NO='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   var ICON_ED='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z"/></svg>';
   var editId=null, editDraft={n:"",s:""}, cancelAsk=false;
-  function canCancel(){return !!ctx&&writable()&&(isDirection()||state.who===ctx.slot.prof)}
+  function isLocked(d){var e=d&&d.emargement;return !!(e&&e.coach&&e.direction)}
+  function canEdit(){return writable()&&(!isLocked(ctxDoc())||isDirection())}
+  function canCancel(){return !!ctx&&canEdit()&&(isDirection()||state.who===coachOf(ctx.slot,ctxDoc())||state.who===ctx.slot.prof)}
+  function paintSub(){
+    if(!ctx)return;
+    $("shSub").textContent=LONG.format(ctx.date).replace(/^./,function(c){return c.toUpperCase()})+" · "+ctx.slot.time+" · "+coachOf(ctx.slot,ctxDoc());
+    var cb=$("coachBox"),sel=$("coachSel");
+    var ok=canEdit()&&(isDirection()||state.who===coachOf(ctx.slot,ctxDoc())||state.who===ctx.slot.prof);
+    cb.hidden=!ok;
+    if(!sel.options.length)PROFS.forEach(function(p){var o=el("option",null,p);o.value=p;sel.appendChild(o)});
+    if(document.activeElement!==sel)sel.value=coachOf(ctx.slot,ctxDoc());
+  }
   function startEdit(p){editId=p.id;editDraft={n:p.n,s:p.s,nw:p.nw,lc:p.lc};renderSheet()}
   function stopEdit(){editId=null;renderSheet()}
   function editRow(p){
@@ -574,7 +595,11 @@ table.dt td.r,table.dt th.r{text-align:right}
   }
   function renderSheet(){
     if(!ctx)return;
-    var ppl=people(), list=$("list"), w=writable();
+    var ppl=people(), list=$("list"), w=canEdit();
+    paintSub();
+    var lk=isLocked(ctxDoc()), ln=$("lockNote");
+    ln.hidden=!lk;
+    ln.textContent=isDirection()?"Cours verrouillé (émargé par le coach et validé par la direction). Vous seule, la direction, pouvez encore le modifier.":"Cours verrouillé : émargé par le coach et validé par la direction. Seule la direction peut le modifier.";
     var ae=document.activeElement, aid=ae&&ae.id, ss=ae&&ae.selectionStart, se=ae&&ae.selectionEnd;
     var pres=ppl.filter(function(p){return p.p}).length;
     var abs=ppl.filter(function(p){return p.a}).length;
@@ -662,7 +687,7 @@ table.dt td.r,table.dt th.r{text-align:right}
     emUI[role]={st:st,form:form,inp:inp,ok:ok};
   }
   function canSign(role){
-    if(!writable())return false;
+    if(!canEdit())return false;
     return role==="direction"?state.who==="Direction":state.who!=="Direction";
   }
   function renderEm(ppl,pres){
@@ -713,7 +738,6 @@ table.dt td.r,table.dt th.r{text-align:right}
     dirty={coach:false,direction:false};
     editId=null;cancelAsk=false;pads.coach.clear();pads.direction.clear();
     $("shTitle").textContent=slot.kind;
-    $("shSub").textContent=LONG.format(date).replace(/^./,function(c){return c.toUpperCase()})+" · "+slot.time+" · "+slot.prof;
     $("quickName").value="";$("addTxt").value="";$("bulk").open=false;
     $("veil").hidden=false;document.body.classList.add("lock");
     renderSheet();
@@ -726,7 +750,9 @@ table.dt td.r,table.dt th.r{text-align:right}
   function toast(msg){var t=$("toast");t.textContent=msg;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(function(){t.hidden=true},3500)}
   function mutate(c,build){
     if(!writable())return;
-    var key=c.dateKey+"__"+c.slot.id, patch=build();
+    var key=c.dateKey+"__"+c.slot.id;
+    if(isLocked(docs.get(key))&&!isDirection()){toast("Ce cours est verrouillé : seule la direction peut le modifier.");return}
+    var key0=key, patch=build();
     var base={date:c.dateKey,week:fmt(mondayOf(c.date)),slot:c.slot.id};
     var cur=docs.get(key), next=cur?JSON.parse(JSON.stringify(cur)):Object.assign({},base);
     docs.set(key,deepMerge(next,patch));
@@ -741,7 +767,7 @@ table.dt td.r,table.dt th.r{text-align:right}
     }).catch(function(e){
       pending--;
       var m=String(e&&e.message||"");
-      if(m!=="auth")toast(m==="forbidden"?"Vous n'avez pas le droit de modifier cette séance.":m==="size"?"La signature est trop lourde. Effacez-la et refaites-la plus simplement.":"L'enregistrement a échoué. Réessayez.");
+      if(m!=="auth")toast(m==="locked"?"Ce cours est verrouillé : seule la direction peut le modifier.":m==="forbidden"?"Vous n'avez pas le droit de modifier cette séance.":m==="size"?"La signature est trop lourde. Effacez-la et refaites-la plus simplement.":"L'enregistrement a échoué. Réessayez.");
       subscribe();
     });
     return chain;
@@ -753,7 +779,7 @@ table.dt td.r,table.dt th.r{text-align:right}
     names.forEach(function(n){var k=n.toLowerCase();if(!existing[k]&&!seen[k]){seen[k]=1;fresh.push(n)}});
     if(!fresh.length){toast(names.length?"Ces noms sont déjà dans la liste.":"Écrivez au moins un nom.");return false}
     var after=people().filter(function(p){return !p.lc}).length+(isLate?0:fresh.length), cap=CAP[ctx.slot.venue];
-    mutate(ctx,function(){var o={};fresh.forEach(function(n){o[newId()]={n:n,p:!!present&&!isLate,a:!!isLate,s:src||"",nw:!!isNew,lc:!!isLate}});return {inscrits:o}});
+    mutate(ctx,function(){var o={};fresh.forEach(function(n){o[newId()]={n:n,p:!!present&&!isLate,a:!!isLate,s:src||"",nw:!!isNew,lc:!!isLate,ab:state.who,ts:Date.now()}});return {inscrits:o}});
     toast(after>cap?"Ajouté, mais le cours dépasse sa capacité ("+after+"/"+cap+").":plural(fresh.length,"inscrit ajouté","inscrits ajoutés")+".");
     return true;
   }
@@ -762,7 +788,7 @@ table.dt td.r,table.dt th.r{text-align:right}
   $("quickForm").addEventListener("submit",function(e){
     e.preventDefault();
     if(!ctx)return;
-    if(!writable()){toast(identified()?"Chargement en cours, réessayez dans un instant.":"Choisissez votre nom en haut de la page.");return}
+    if(!canEdit()){toast(!identified()?"Choisissez votre nom en haut de la page.":!loaded?"Chargement en cours, réessayez dans un instant.":"Ce cours est verrouillé : seule la direction peut le modifier.");return}
     var n=clean($("quickName").value);
     if(!n){toast("Indiquez le nom et le prénom.");return}
     var src=$("quickSrc").value;
@@ -771,7 +797,7 @@ table.dt td.r,table.dt th.r{text-align:right}
   });
   $("addForm").addEventListener("submit",function(e){
     e.preventDefault();
-    if(!ctx||!writable())return;
+    if(!ctx||!canEdit())return;
     var names=$("addTxt").value.split(/[\n;,]+/).map(clean).filter(Boolean);
     var bs=$("bulkSrc").value;
     if(!bs){toast("Choisissez la source de ces inscrits.");return}
@@ -780,6 +806,12 @@ table.dt td.r,table.dt th.r{text-align:right}
   $("all").onclick=function(){
     var c=ctx;
     mutate(c,function(){var o={};people().forEach(function(p){if(!p.p&&!p.a)o[p.id]={p:true,a:false}});return {inscrits:o}});
+  };
+  $("coachSel").onchange=function(){
+    if(!ctx)return;
+    var v=$("coachSel").value;
+    mutate(ctx,function(){return {coach:v}});
+    toast("Coach modifié : "+v+".");
   };
   $("close").onclick=closeSheet;
   $("cancelBtn").onclick=function(){cancelAsk=true;renderSheet()};
@@ -796,11 +828,41 @@ table.dt td.r,table.dt th.r{text-align:right}
   document.addEventListener("keydown",function(e){if(e.key==="Escape"&&ctx)closeSheet()});
 
   /* ---------- données : rechargées toutes les 15 secondes ---------- */
+  var seenAdds={};
+  function notifyAdd(doc,p){
+    var s=SLOTBYID[doc.slot];if(!s)return;
+    var date=new Date(doc.date+"T12:00:00");
+    var box=$("notifs"),n=el("div","notif");n.setAttribute("role","button");n.tabIndex=0;
+    var t=el("div");
+    t.appendChild(el("b",null,p.ab+" a ajouté un élève"));
+    t.appendChild(document.createTextNode(p.n+(p.s?" ("+p.s+")":"")+" · "+s.kind+" "+s.time+", "+SHORT.format(date)));
+    n.appendChild(t);
+    var x=el("button","x","×");x.type="button";x.setAttribute("aria-label","Fermer");
+    function close(){if(n.parentNode)n.parentNode.removeChild(n)}
+    x.onclick=function(e){e.stopPropagation();close()};
+    n.appendChild(x);
+    n.onclick=function(){close();if(!ctx)openSheet(s,date,doc.date)};
+    box.appendChild(n);
+    setTimeout(close,20000);
+  }
+  function detectAdds(m,first){
+    m.forEach(function(doc,key){
+      var ins=doc.inscrits||{};
+      Object.keys(ins).forEach(function(id){
+        var p=ins[id],k=key+"|"+id;
+        if(seenAdds[k])return;
+        seenAdds[k]=1;
+        if(first||p.d||!p.ab||p.ab===state.who||!isDirection())return;
+        if(p.ts&&Date.now()-p.ts>600000)return;
+        notifyAdd(doc,p);
+      });
+    });
+  }
   function subscribe(){
     clearTimeout(pollTimer);weekGen++;
     loaded=false;docs=new Map();
     if(!identified()){renderWeek();renderSheet();return}
-    var gen=weekGen, from=fmt(state.week), to=fmt(addDays(state.week,6));
+    var gen=weekGen, from=fmt(state.week), to=fmt(addDays(state.week,6)), firstLoad=true;
     function tick(){
       if(gen!==weekGen)return;
       if(document.hidden||pending>0){pollTimer=setTimeout(tick,POLL);return}
@@ -809,6 +871,7 @@ table.dt td.r,table.dt th.r{text-align:right}
         var m=new Map();
         r.docs.forEach(function(e){m.set(e.key,e.data)});
         docs=m;loaded=true;
+        detectAdds(m,firstLoad);firstLoad=false;
         renderWeek();renderSheet();
       }).catch(function(e){
                 if(gen===weekGen&&!loaded&&String(e&&e.message)!=="auth")toast("Connexion impossible. Nouvelle tentative…");
@@ -836,7 +899,7 @@ table.dt td.r,table.dt th.r{text-align:right}
       var dr=em&&em.direction&&typeof em.direction.n==="number"?em.direction:null;
       if(!s||(!(c&&typeof c.n==="number")&&!dr))return;
       if(d.annule)return;
-      var coach=(c&&c.by&&c.by!=="Direction")?c.by:s.prof;
+      var coach=d.coach||((c&&c.by&&c.by!=="Direction")?c.by:s.prof);
       var lt=lateOf(d), n=(dr?dr.n:(c?c.n:0))+lt, amt=pay(s.venue,n);
       var g=by[coach]||(by[coach]={rows:[],total:0,pend:0});
       g.rows.push({date:d.date,s:s,cn:c?c.n:null,dn:dr?dr.n:null,lt:lt,n:n,amt:amt,pend:!dr,st:c?(dr?"ok":"coach"):"dir",pr:statsOf(d).pre});
@@ -857,7 +920,8 @@ table.dt td.r,table.dt th.r{text-align:right}
           if(d&&d.annule)return;
           var em=d&&d.emargement;
           if(em&&((em.coach&&typeof em.coach.n==="number")||(em.direction&&typeof em.direction.n==="number")))return;
-          var g=by[s.prof]||(by[s.prof]={rows:[],total:0,pend:0});
+          var pc0=(d&&d.coach)||s.prof;
+          var g=by[pc0]||(by[pc0]={rows:[],total:0,pend:0});
           g.rows.push({date:dk,s:s,cn:null,dn:null,lt:d?lateOf(d):0,n:0,amt:0,pend:false,st:"none",pr:d?statsOf(d).pre:0});
           miss++;
         })});
@@ -1071,7 +1135,7 @@ table.dt td.r,table.dt th.r{text-align:right}
           tr.appendChild(el("td",null,s.time));
           tr.appendChild(el("td",null,s.kind+(s.venue==="studio"?" (Studio)":"")));
           var c=r.d.emargement&&r.d.emargement.coach;
-          tr.appendChild(el("td",null,(c&&c.by&&c.by!=="Direction")?c.by:s.prof));
+          tr.appendChild(el("td",null,r.d.coach||((c&&c.by&&c.by!=="Direction")?c.by:s.prof)));
           tr.appendChild(el("td","r",r.st.pre+"/"+r.st.ins));
           tr.appendChild(el("td","r",String(r.st.abs)));
           var am=emAmount(r.d);
