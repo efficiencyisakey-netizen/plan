@@ -226,6 +226,8 @@ table.dt td.r,table.dt th.r{text-align:right}
 .goal b{color:var(--accent)}
 .drange{display:inline-flex;gap:6px;align-items:center}
 .drange input{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 8px}
+.srcfilter{flex-wrap:wrap;border-radius:16px;align-self:flex-start}
+.srcfilter button{padding:6px 12px;font-size:14px}
 .slotform{gap:10px}
 .slotform label{display:flex;flex-direction:column;gap:4px;font-weight:500}
 .slotform label.row2{flex-direction:row;align-items:center;gap:8px}
@@ -363,6 +365,7 @@ td.est{color:var(--muted);font-style:italic}
       </form>
       <div class="paynote" id="lockNote" hidden></div>
       <div class="paynote goal" id="goalNote" hidden></div>
+      <div class="seg srcfilter" id="srcFilter" role="group" aria-label="Filtrer par source" hidden></div>
       <ul class="list" id="list"></ul>
       <details class="bulk" id="bulk">
         <summary>Ajouter plusieurs noms d'un coup</summary>
@@ -660,7 +663,8 @@ td.est{color:var(--muted);font-style:italic}
   var ICON_OK='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
   var ICON_NO='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   var ICON_ED='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z"/></svg>';
-  var editId=null, editDraft={n:"",s:""}, cancelAsk=false;
+  var editId=null, editDraft={n:"",s:""}, cancelAsk=false, srcFilter="";
+  function inFilter(p){return !srcFilter||(srcFilter==="__none"?!srcName(p.s):srcName(p.s)===srcFilter)}
   function ctxDoc_annule(){var d=ctxDoc();return !!(d&&d.annule)}
   function isLocked(d){var e=d&&d.emargement;return !!(e&&e.coach&&e.direction)}
   function canEdit(){return writable()&&(!isLocked(ctxDoc())||isDirection())}
@@ -748,7 +752,8 @@ td.est{color:var(--muted);font-style:italic}
     if(!identified()){list.appendChild(el("li","empty","Choisissez votre nom en haut de la page pour voir la liste, faire l'appel et émarger."))}
     else if(!loaded){list.appendChild(el("li","empty","Chargement de la liste…"))}
     else if(!ppl.length){list.appendChild(el("li","empty","Aucun inscrit pour cette séance. Ajoutez un élève ci-dessus."))}
-    ppl.forEach(function(p){
+    else if(!ppl.some(inFilter)){list.appendChild(el("li","empty","Aucun inscrit pour cette source."))}
+    ppl.filter(inFilter).forEach(function(p){
       if(p.id===editId){list.appendChild(editRow(p));return}
       var li=el("li","row"+(p.p?" here":"")+(p.a?" gone":""));
       var who=el("div","who");
@@ -764,7 +769,22 @@ td.est{color:var(--muted);font-style:italic}
       li.appendChild(rm);
       list.appendChild(li);
     });
-    $("all").disabled=!w||!ppl.some(function(p){return !p.p&&!p.a});
+    $("all").disabled=!w||!ppl.some(function(p){return inFilter(p)&&!p.p&&!p.a});
+    var sf=$("srcFilter");
+    if(!identified()||!loaded||!ppl.length){sf.hidden=true}
+    else{
+      sf.hidden=false;sf.textContent="";
+      var opts=[["","Tous",ppl.length]].concat(SOURCES.map(function(s){return [s,s,ppl.filter(function(p){return srcName(p.s)===s}).length]}));
+      var nn=ppl.filter(function(p){return !srcName(p.s)}).length;
+      if(nn)opts.push(["__none","Sans source",nn]);
+      if(!opts.some(function(o){return o[0]===srcFilter}))srcFilter="";
+      opts.forEach(function(o){
+        var b=el("button",null,o[1]+" ("+o[2]+")");b.type="button";
+        b.setAttribute("aria-pressed",String(srcFilter===o[0]));
+        b.onclick=function(){srcFilter=o[0];renderSheet()};
+        sf.appendChild(b);
+      });
+    }
     $("quickForm").hidden=false;
     $("bulk").hidden=!w;
     var cc=canCancel();
@@ -882,7 +902,7 @@ td.est{color:var(--muted);font-style:italic}
   function openSheet(slot,date,dk){
     ctx={slot:slot,dateKey:dk,date:date};
     dirty={coach:false,direction:false};
-    editId=null;cancelAsk=false;pads.coach.clear();pads.direction.clear();
+    editId=null;cancelAsk=false;srcFilter="";pads.coach.clear();pads.direction.clear();
     $("shTitle").textContent=slot.kind;
     $("quickName").value="";$("addTxt").value="";$("bulk").open=false;
     $("veil").hidden=false;document.body.classList.add("lock");
@@ -951,7 +971,7 @@ td.est{color:var(--muted);font-style:italic}
   });
   $("all").onclick=function(){
     var c=ctx;
-    mutate(c,function(){var o={};people().forEach(function(p){if(!p.p&&!p.a)o[p.id]={p:true,a:false}});return {inscrits:o}});
+    mutate(c,function(){var o={};people().forEach(function(p){if(inFilter(p)&&!p.p&&!p.a)o[p.id]={p:true,a:false}});return {inscrits:o}});
   };
   function slotFormInit(){
     var k=$("slKind");k.textContent="";
@@ -1678,3 +1698,4 @@ td.est{color:var(--muted);font-style:italic}
 </script>
 </body>
 </html>
+
