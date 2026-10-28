@@ -1689,6 +1689,149 @@ td.est{color:var(--muted);font-style:italic}
   $("mineOnly").checked=state.mineOnly;
   $("mineOnly").onchange=function(){state.mineOnly=$("mineOnly").checked;store("psc-mine",state.mineOnly?"1":null);renderWeek()};
 
+  /* ---------- import des réservations Wellpass / ClassPass (direction) ---------- */
+  (function importResa(){
+    var bar=$("dirNav");if(!bar)return;
+    var btn=document.createElement("button");
+    btn.type="button";btn.className="tbtn";btn.id="impBtn";btn.textContent="Importer résa";
+    bar.appendChild(btn);
+    var st=document.createElement("style");
+    st.textContent=".impov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:90;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}"+
+      ".impbox{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:14px;max-width:820px;width:100%;padding:18px;display:grid;gap:12px}"+
+      ".impbox h2{margin:0;font-size:1.15rem}.impbox textarea{width:100%;min-height:110px;font:12px/1.4 monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:8px}"+
+      ".impbox .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.impbox .sum{font-weight:600}.impbox .lst{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:.85rem}"+
+      ".impbox .bad{color:var(--danger)}.impbox .ok{color:var(--good)}.impbox .dim{color:var(--muted)}";
+    document.head.appendChild(st);
+
+    function norm(s){return String(s==null?"":s).normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim()}
+    function hhmm(t){
+      if(typeof t==="number"&&t<1){var m0=Math.round(t*1440);return Math.floor(m0/60)+":"+pad(m0%60)}
+      var m=String(t==null?"":t).match(/(\d{1,2})\s*[:h]\s*(\d{2})/);return m?(+m[1])+":"+m[2]:"";
+    }
+    function dkey(v){
+      if(typeof v==="number"&&v>20000){var d0=new Date(Math.round((v-25569)*86400000));return d0.getUTCFullYear()+"-"+pad(d0.getUTCMonth()+1)+"-"+pad(d0.getUTCDate())}
+      var s=String(v==null?"":v).trim(),m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+"-"+m[2]+"-"+m[3];
+      m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?m[3]+"-"+pad(+m[2])+"-"+pad(+m[1]):"";
+    }
+    function yes(v){var s=norm(v);return s==="oui"||s==="1"||s==="true"||s==="x"||s==="yes"}
+    function toDate(k){var p=k.split("-");return new Date(+p[0],+p[1]-1,+p[2])}
+    var COLS=[["src",/^(source|origine|plateforme)/],["date",/^date/],["time",/^(heure|horaire|time)/],["venue",/^(espace|lieu|venue)/],["coach",/^(coach|prof)/],["nom",/^(inscrit|nom|membre|name)/],["nw",/^(nouveau|new)/],["pr",/^(present|presence)/]];
+    function parseRows(grid){
+      if(!grid.length)return [];
+      var map={},h=grid[0].map(norm);
+      COLS.forEach(function(c){for(var i=0;i<h.length;i++){if(map[c[0]]==null&&c[1].test(h[i])){map[c[0]]=i;break}}});
+      if(map.date==null||map.time==null||map.nom==null)throw new Error("Colonnes attendues : Date, Heure, Inscrit (+ Source, Espace, Coach, Nouveau, Présent).");
+      var out=[];
+      grid.slice(1).forEach(function(r){
+        var nom=clean(String(r[map.nom]==null?"":r[map.nom]));if(!nom)return;
+        out.push({src:map.src!=null?clean(String(r[map.src]||"")):"",date:dkey(r[map.date]),time:hhmm(r[map.time]),venue:map.venue!=null?norm(r[map.venue]):"",coach:map.coach!=null?norm(r[map.coach]):"",nom:nom,nw:map.nw!=null&&yes(r[map.nw]),pr:map.pr!=null&&yes(r[map.pr])});
+      });
+      return out;
+    }
+    function parseText(t){
+      var lines=t.split(/\r?\n/).filter(function(l){return l.trim()});
+      var del=t.indexOf("\t")>=0?"\t":(t.indexOf(";")>=0?";":",");
+      return lines.map(function(l){return l.split(del)});
+    }
+    function locate(r){
+      var d=toDate(r.date),wd=(d.getDay()+6)%7;
+      var c=[];
+      ["club","studio"].forEach(function(v){
+        if(r.venue&&r.venue.indexOf(v)<0)return;
+        PLAN[v].forEach(function(s){if(s.day===wd&&hhmm(s.time)===r.time&&activeOn(s,r.date))c.push(s)});
+      });
+      if(c.length>1&&r.coach){var f=c.filter(function(s){return r.coach.indexOf(norm(s.prof))===0||norm(s.prof)===r.coach.split(" ")[0]});if(f.length)c=f}
+      return c;
+    }
+
+    var ov=null;
+    function open(){
+      if(!isDirection()){toast("Réservé à la direction.");return}
+      ov=document.createElement("div");ov.className="impov";
+      ov.innerHTML='<div class="impbox" role="dialog" aria-label="Importer des réservations"><h2>Importer des réservations</h2>'+
+        '<div class="dim">Collez les lignes (Date, Heure, Espace, Coach, Inscrit, Nouveau, Présent) ou choisissez le fichier Excel/CSV d\'import. Les noms déjà présents sont ignorés.</div>'+
+        '<div class="row"><label>Source par défaut <select id="impSrc"><option>Wellpass</option><option>ClassPass</option></select></label>'+
+        '<input type="file" id="impFile" accept=".xlsx,.xls,.csv,.tsv,.txt"></div>'+
+        '<textarea id="impTxt" placeholder="Date;Heure;Espace;Coach;Inscrit;Nouveau;Présent"></textarea>'+
+        '<div class="row"><button type="button" class="tbtn" id="impGo">Analyser</button><button type="button" class="tbtn" id="impRun" disabled>Importer</button><button type="button" class="tbtn" id="impX">Fermer</button></div>'+
+        '<div id="impOut"></div></div>';
+      document.body.appendChild(ov);
+      var plan=[];
+      var out=ov.querySelector("#impOut"),run=ov.querySelector("#impRun");
+      function msg(h){out.innerHTML=h}
+      function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+      ov.querySelector("#impX").onclick=function(){ov.remove();ov=null};
+      ov.querySelector("#impFile").onchange=function(e){
+        var f=e.target.files[0];if(!f)return;
+        var xl=/\.xlsx?$/i.test(f.name),rd=new FileReader();
+        if(!xl){rd.onload=function(){ov.querySelector("#impTxt").value=rd.result};rd.readAsText(f);return}
+        function go(){
+          rd.onload=function(){
+            try{
+              var wb=XLSX.read(rd.result,{type:"array"});
+              var sn=wb.SheetNames.indexOf("Import")>=0?"Import":wb.SheetNames[0];
+              var g=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:false,defval:""});
+              ov.querySelector("#impTxt").value=g.map(function(r){return r.join("\t")}).join("\n");
+            }catch(err){msg('<span class="bad">Fichier illisible.</span>')}
+          };rd.readAsArrayBuffer(f);
+        }
+        if(window.XLSX)return go();
+        var sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        sc.onload=go;sc.onerror=function(){msg('<span class="bad">Impossible de lire un .xlsx ici : enregistrez en .csv puis réessayez.</span>')};
+        document.head.appendChild(sc);
+      };
+      ov.querySelector("#impGo").onclick=function(){
+        var rows;plan=[];run.disabled=true;
+        try{rows=parseRows(parseText(ov.querySelector("#impTxt").value))}catch(err){msg('<span class="bad">'+esc(err.message)+'</span>');return}
+        var defSrc=ov.querySelector("#impSrc").value;
+        var good=[],bad=[];
+        rows.forEach(function(r){
+          if(!r.date||!r.time){bad.push([r,"date ou heure illisible"]);return}
+          var c=locate(r);
+          if(!c.length)bad.push([r,"aucun créneau au planning ("+r.time+")"]);
+          else if(c.length>1)bad.push([r,"créneau ambigu : précisez l'espace ou le coach"]);
+          else good.push({r:r,s:c[0],src:srcName(r.src)||defSrc});
+        });
+        if(!good.length){msg('<div class="sum bad">Rien à importer.</div>'+bad.map(function(b){return '<div class="bad">'+esc(b[0].date+" "+b[0].time+" "+b[0].nom)+" — "+b[1]+"</div>"}).join(""));return}
+        var ds=good.map(function(g){return g.r.date}).sort();
+        msg('<div class="dim">Vérification des inscrits déjà saisis…</div>');
+        authed({action:"range",from:ds[0],to:ds[ds.length-1]}).then(function(res){
+          var ex={};res.docs.forEach(function(e){var m=(e.data&&e.data.inscrits)||{};ex[e.key]=Object.keys(m).filter(function(k){return !m[k].d}).map(function(k){return norm(m[k].n)})});
+          var dup=[],seen={};
+          good.forEach(function(g){
+            var key=g.r.date+"__"+g.s.id,n=norm(g.r.nom),sk=key+"|"+n;
+            if((ex[key]&&ex[key].indexOf(n)>=0)||seen[sk]){dup.push(g);return}
+            seen[sk]=1;plan.push({g:g,key:key});
+          });
+          var h='<div class="sum"><span class="ok">'+plan.length+' à ajouter</span> · '+dup.length+' déjà présents · <span class="'+(bad.length?"bad":"")+'">'+bad.length+' à vérifier</span></div><div class="lst">';
+          plan.forEach(function(p){h+='<div>'+esc(p.g.r.date+" "+p.g.r.time+" · "+p.g.s.venue+" · "+p.g.s.kind+" — "+p.g.r.nom+" ("+p.g.src+")")+'</div>'});
+          bad.forEach(function(b){h+='<div class="bad">'+esc(b[0].date+" "+b[0].time+" "+b[0].nom)+" — "+b[1]+'</div>'});
+          msg(h+'</div>');run.disabled=!plan.length;run.textContent="Importer "+plan.length;
+        }).catch(function(){msg('<span class="bad">Connexion impossible, réessayez.</span>')});
+      };
+      run.onclick=function(){
+        run.disabled=true;
+        var groups={},order=[];
+        plan.forEach(function(p){if(!groups[p.key]){groups[p.key]={s:p.g.s,date:p.g.r.date,o:{}};order.push(p.key)}
+          groups[p.key].o[newId()]={n:p.g.r.nom,p:!!p.g.r.pr,a:false,s:p.g.src,nw:!!p.g.r.nw,lc:false,ab:state.who,ts:Date.now()}});
+        var done=0,total=plan.length,failed=0;
+        var chainI=Promise.resolve();
+        order.forEach(function(k){
+          var g=groups[k];
+          chainI=chainI.then(function(){
+            var base={date:g.date,week:fmt(mondayOf(toDate(g.date))),slot:g.s.id};
+            return authed({action:"mutate",key:k,base:base,patch:{inscrits:g.o}}).then(function(){done+=Object.keys(g.o).length}).catch(function(){failed+=Object.keys(g.o).length});
+          }).then(function(){msg('<div class="sum">Import en cours… '+(done+failed)+"/"+total+"</div>")});
+        });
+        chainI.then(function(){
+          msg('<div class="sum '+(failed?"bad":"ok")+'">'+done+" inscrits ajoutés"+(failed?", "+failed+" en échec (relancez l'analyse)":"")+".</div>");
+          toast(done+" inscrits importés.");subscribe();
+        });
+      };
+    }
+    btn.onclick=open;
+  })();
+
   buildEm("coach","Coach");
   buildEm("direction","Direction");
   setVenue(state.venue);
