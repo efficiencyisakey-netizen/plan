@@ -1750,13 +1750,14 @@ td.est{color:var(--muted);font-style:italic}
       ov=document.createElement("div");ov.className="impov";
       ov.innerHTML='<div class="impbox" role="dialog" aria-label="Importer des réservations"><h2>Importer des réservations</h2>'+
         '<div class="dim">Collez les lignes (Date, Heure, Espace, Coach, Inscrit, Nouveau, Présent) ou choisissez le fichier Excel/CSV d\'import. Les noms déjà présents sont ignorés.</div>'+
+        '<div class="row"><label><input type="checkbox" id="impRm" checked> Retirer les réservations annulées</label></div>'+
         '<div class="row"><label>Source par défaut <select id="impSrc"><option>Wellpass</option><option>ClassPass</option></select></label>'+
         '<input type="file" id="impFile" accept=".xlsx,.xls,.csv,.tsv,.txt"></div>'+
         '<textarea id="impTxt" placeholder="Date;Heure;Espace;Coach;Inscrit;Nouveau;Présent"></textarea>'+
         '<div class="row"><button type="button" class="tbtn" id="impGo">Analyser</button><button type="button" class="tbtn" id="impRun" disabled>Importer</button><button type="button" class="tbtn" id="impX">Fermer</button></div>'+
         '<div id="impOut"></div></div>';
       document.body.appendChild(ov);
-      var plan=[];
+      var plan=[],removals=[];
       var out=ov.querySelector("#impOut"),run=ov.querySelector("#impRun");
       function msg(h){out.innerHTML=h}
       function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
@@ -1781,8 +1782,12 @@ td.est{color:var(--muted);font-style:italic}
         document.head.appendChild(sc);
       };
       ov.querySelector("#impGo").onclick=function(){
-        var rows;plan=[];run.disabled=true;
-        try{rows=parseRows(parseText(ov.querySelector("#impTxt").value))}catch(err){msg('<span class="bad">'+esc(err.message)+'</span>');return}
+        var rows,dirs=[];plan=[];removals=[];run.disabled=true;
+        try{
+          var all=parseText(ov.querySelector("#impTxt").value);
+          dirs=all.filter(function(r){return String(r[0]).charAt(0)==="#"});
+          rows=parseRows(all.filter(function(r){return String(r[0]).charAt(0)!=="#"}));
+        }catch(err){msg('<span class="bad">'+esc(err.message)+'</span>');return}
         var defSrc=ov.querySelector("#impSrc").value;
         var good=[],bad=[];
         rows.forEach(function(r){
@@ -1792,21 +1797,53 @@ td.est{color:var(--muted);font-style:italic}
           else if(c.length>1)bad.push([r,"créneau ambigu : précisez l'espace ou le coach"]);
           else good.push({r:r,s:c[0],src:srcName(r.src)||defSrc});
         });
-        if(!good.length){msg('<div class="sum bad">Rien à importer.</div>'+bad.map(function(b){return '<div class="bad">'+esc(b[0].date+" "+b[0].time+" "+b[0].nom)+" — "+b[1]+"</div>"}).join(""));return}
-        var ds=good.map(function(g){return g.r.date}).sort();
+        var doRm=ov.querySelector("#impRm").checked&&dirs.length>0;
+        if(!good.length&&!doRm){msg('<div class="sum bad">Rien à importer.</div>'+bad.map(function(b){return '<div class="bad">'+esc(b[0].date+" "+b[0].time+" "+b[0].nom)+" — "+b[1]+"</div>"}).join(""));return}
+        var ds=good.map(function(g){return g.r.date});
+        var scope={},cover={};
+        if(doRm){
+          dirs.forEach(function(d){
+            var t=String(d[0]).toUpperCase();
+            if(t==="#SCOPE"){scope[d[1]]={from:d[2],to:d[3],mode:d[4]};ds.push(d[2],d[3])}
+            else if(t==="#COVER"){
+              var c=locate({date:d[2],time:hhmm(d[3]),venue:norm(d[4]||""),coach:""});
+              if(c.length===1)cover[d[2]+"__"+c[0].id+"|"+d[1]]=1;
+            }
+          });
+        }
+        ds.sort();
+        if(!ds.length){msg('<div class="sum bad">Rien à importer.</div>');return}
         msg('<div class="dim">Vérification des inscrits déjà saisis…</div>');
         authed({action:"range",from:ds[0],to:ds[ds.length-1]}).then(function(res){
           var ex={};res.docs.forEach(function(e){var m=(e.data&&e.data.inscrits)||{};ex[e.key]=Object.keys(m).filter(function(k){return !m[k].d}).map(function(k){return norm(m[k].n)})});
           var dup=[],seen={};
+          var present={},badn={};
+          good.forEach(function(g){present[g.r.date+"__"+g.s.id+"|"+g.src+"|"+norm(g.r.nom)]=1});
+          bad.forEach(function(b){badn[b[0].date+"|"+(srcName(b[0].src)||defSrc)+"|"+norm(b[0].nom)]=1});
+          if(doRm){
+            res.docs.forEach(function(e){
+              var dt=e.key.slice(0,10),m=(e.data&&e.data.inscrits)||{};
+              Object.keys(m).forEach(function(k){
+                var x=m[k];if(x.d||x.p||x.a||x.lc)return;
+                var sc=scope[x.s];if(!sc||dt<sc.from||dt>sc.to)return;
+                if(sc.mode!=="all"&&!cover[e.key+"|"+x.s])return;
+                var n=norm(x.n);
+                if(present[e.key+"|"+x.s+"|"+n]||badn[dt+"|"+x.s+"|"+n])return;
+                var sl=SLOTBYID[e.key.slice(12)];if(!sl)return;
+                removals.push({key:e.key,id:k,name:x.n,src:x.s,date:dt,slot:sl?(sl.time+" "+sl.kind):e.key});
+              });
+            });
+          }
           good.forEach(function(g){
             var key=g.r.date+"__"+g.s.id,n=norm(g.r.nom),sk=key+"|"+n;
             if((ex[key]&&ex[key].indexOf(n)>=0)||seen[sk]){dup.push(g);return}
             seen[sk]=1;plan.push({g:g,key:key});
           });
-          var h='<div class="sum"><span class="ok">'+plan.length+' à ajouter</span> · '+dup.length+' déjà présents · <span class="'+(bad.length?"bad":"")+'">'+bad.length+' à vérifier</span></div><div class="lst">';
+          var h='<div class="sum"><span class="ok">'+plan.length+' à ajouter</span> · '+dup.length+' déjà présents · <span class="'+(removals.length?"bad":"")+'">'+removals.length+' à retirer (annulés)</span> · <span class="'+(bad.length?"bad":"")+'">'+bad.length+' à vérifier</span></div><div class="lst">';
+          removals.forEach(function(r){h+='<div class="bad">Retirer : '+esc(r.date+" "+r.slot+" — "+r.name+" ("+r.src+")")+'</div>'});
           plan.forEach(function(p){h+='<div>'+esc(p.g.r.date+" "+p.g.r.time+" · "+p.g.s.venue+" · "+p.g.s.kind+" — "+p.g.r.nom+" ("+p.g.src+")")+'</div>'});
           bad.forEach(function(b){h+='<div class="bad">'+esc(b[0].date+" "+b[0].time+" "+b[0].nom)+" — "+b[1]+'</div>'});
-          msg(h+'</div>');run.disabled=!plan.length;run.textContent="Importer "+plan.length;
+          msg(h+'</div>');run.disabled=!(plan.length||removals.length);run.textContent="Importer "+plan.length+(removals.length?" / retirer "+removals.length:"");
         }).catch(function(){msg('<span class="bad">Connexion impossible, réessayez.</span>')});
       };
       run.onclick=function(){
@@ -1814,7 +1851,8 @@ td.est{color:var(--muted);font-style:italic}
         var groups={},order=[];
         plan.forEach(function(p){if(!groups[p.key]){groups[p.key]={s:p.g.s,date:p.g.r.date,o:{}};order.push(p.key)}
           groups[p.key].o[newId()]={n:p.g.r.nom,p:!!p.g.r.pr,a:false,s:p.g.src,nw:!!p.g.r.nw,lc:false,ab:state.who,ts:Date.now()}});
-        var done=0,total=plan.length,failed=0;
+        removals.forEach(function(r){if(!groups[r.key]){groups[r.key]={s:SLOTBYID[r.key.slice(12)],date:r.date,o:{}};order.push(r.key)}groups[r.key].o[r.id]={d:true}});
+        var done=0,total=plan.length+removals.length,failed=0;
         var chainI=Promise.resolve();
         order.forEach(function(k){
           var g=groups[k];
@@ -1824,7 +1862,7 @@ td.est{color:var(--muted);font-style:italic}
           }).then(function(){msg('<div class="sum">Import en cours… '+(done+failed)+"/"+total+"</div>")});
         });
         chainI.then(function(){
-          msg('<div class="sum '+(failed?"bad":"ok")+'">'+done+" inscrits ajoutés"+(failed?", "+failed+" en échec (relancez l'analyse)":"")+".</div>");
+          msg('<div class="sum '+(failed?"bad":"ok")+'">'+(done-removals.length)+" inscrits ajoutés, "+removals.length+" retirés"+(failed?", "+failed+" en échec (relancez l'analyse)":"")+".</div>");
           toast(done+" inscrits importés.");subscribe();
         });
       };
