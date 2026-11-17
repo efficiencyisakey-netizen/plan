@@ -1690,6 +1690,141 @@ td.est{color:var(--muted);font-style:italic}
   $("mineOnly").onchange=function(){state.mineOnly=$("mineOnly").checked;store("psc-mine",state.mineOnly?"1":null);renderWeek()};
 
   /* ---------- import des réservations Wellpass / ClassPass (direction) ---------- */
+  /* ---------- chiffres de la semaine (direction + code à 4 chiffres) ---------- */
+  (function chiffresSemaine(){
+    var bar=$("dirNav");if(!bar)return;
+    var btn=document.createElement("button");
+    btn.type="button";btn.className="tbtn";btn.id="caBtn";btn.textContent="Chiffres";
+    bar.appendChild(btn);
+    var st=document.createElement("style");
+    st.textContent=".caov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:90;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}"+
+      ".cabox{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:14px;max-width:860px;width:100%;padding:18px;display:grid;gap:14px}"+
+      ".cabox h2{margin:0;font-size:1.15rem}.cabox .dim{color:var(--muted);font-size:.85rem}.cabox .bad{color:var(--danger)}"+
+      ".cahead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}"+
+      ".cakeys{display:grid;grid-template-columns:repeat(3,64px);gap:10px;justify-content:center}"+
+      ".cakeys button{height:56px;font-size:1.3rem;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}"+
+      ".cadots{display:flex;gap:12px;justify-content:center;font-size:1.6rem;letter-spacing:6px;min-height:34px}"+
+      ".cacards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}"+
+      ".cacard{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--bg)}.cacard b{display:block;font-size:1.35rem;margin-top:2px}"+
+      ".cabox table{width:100%;border-collapse:collapse;font-size:.88rem}.cabox th,.cabox td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right}"+
+      ".cabox th:first-child,.cabox td:first-child{text-align:left}.cabox tfoot td{font-weight:700}"+
+      ".cabox details{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.cabox summary{cursor:pointer;font-weight:600}"+
+      ".cabox details table{margin-top:8px}.cabox .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}";
+    document.head.appendChild(st);
+
+    function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+    function eur(n){return (Math.round(n*100)/100).toLocaleString("fr-FR",{style:"currency",currency:"EUR"})}
+    var DOW=["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
+    var ov=null,pin="",wk=null,box=null;
+
+    function api(req){req.action="ca";return call(req)}
+    function close(){if(ov){ov.remove();ov=null}pin="";box=null}
+    function open(){
+      if(!isDirection()){toast("Réservé à la direction.");return}
+      ov=document.createElement("div");ov.className="caov";
+      ov.innerHTML='<div class="cabox" role="dialog" aria-label="Chiffres de la semaine"></div>';
+      document.body.appendChild(ov);box=ov.firstChild;
+      ov.addEventListener("click",function(e){if(e.target===ov)close()});
+      pin="";wk=mondayOf(new Date());
+      box.innerHTML='<div class="dim">Chargement…</div>';
+      api({op:"status"}).then(function(r){keypad(r.hasPin?"enter":"create")}).catch(function(){box.innerHTML='<div class="bad">Connexion impossible.</div><button type="button" class="tbtn" id="caX">Fermer</button>';box.querySelector("#caX").onclick=close});
+    }
+
+    /* ----- saisie du code ----- */
+    function keypad(mode,first,msg){
+      var buf="",title=mode==="create"?(first?"Confirmez le code":"Créez un code à 4 chiffres"):mode==="change"?(first?"Confirmez le nouveau code":"Nouveau code à 4 chiffres"):"Code à 4 chiffres";
+      var keys="";[1,2,3,4,5,6,7,8,9].forEach(function(k){keys+='<button type="button" data-k="'+k+'">'+k+'</button>'});
+      keys+='<button type="button" data-k="x" aria-label="Effacer">⌫</button><button type="button" data-k="0">0</button><button type="button" data-k="ok" aria-label="Fermer">✕</button>';
+      box.innerHTML='<div class="cahead"><h2>'+title+'</h2></div><div class="cadots" id="caDots"></div><div class="dim" id="caMsg" style="text-align:center">'+(msg||"")+'</div><div class="cakeys">'+keys+'</div>';
+      var dots=box.querySelector("#caDots"),m=box.querySelector("#caMsg");
+      function paint(){dots.textContent=buf.replace(/./g,"●")+"○○○○".slice(buf.length)}
+      paint();
+      function done(){
+        if(mode==="enter"){
+          api({op:"get",pin:buf,week:fmt(wk)}).then(function(r){
+            if(r.ok){pin=buf;show(r)}
+            else if(r.error==="locked"){buf="";paint();m.innerHTML='<span class="bad">Trop d\'essais. Réessayez dans '+Math.max(1,Math.ceil((r.wait||600)/60))+' min.</span>'}
+            else{buf="";paint();m.innerHTML='<span class="bad">Code incorrect.</span>'}
+          }).catch(function(){buf="";paint();m.innerHTML='<span class="bad">Connexion impossible.</span>'});
+        }else if(mode==="create"){
+          if(!first){keypad("create",buf);return}
+          if(buf!==first){keypad("create",null,'<span class="bad">Les deux codes sont différents.</span>');return}
+          api({op:"setpin",pin:buf}).then(function(r){if(r.ok){pin=buf;load()}else keypad("enter",null,'<span class="bad">Un code existe déjà.</span>')}).catch(function(){keypad("create",null,'<span class="bad">Connexion impossible.</span>')});
+        }else{
+          if(!first){keypad("change",buf);return}
+          if(buf!==first){keypad("change",null,'<span class="bad">Les deux codes sont différents.</span>');return}
+          api({op:"setpin",pin:pin,newPin:buf}).then(function(r){if(r.ok){pin=buf;toast("Code modifié.");load()}else{toast("Échec : code non modifié.");load()}}).catch(function(){toast("Connexion impossible.");load()});
+        }
+      }
+      box.querySelector(".cakeys").onclick=function(e){
+        var k=e.target.getAttribute&&e.target.getAttribute("data-k");if(!k)return;
+        if(k==="ok"){close();return}
+        if(k==="x")buf=buf.slice(0,-1);else if(buf.length<4)buf+=k;
+        paint();if(buf.length===4)setTimeout(done,120);
+      };
+    }
+
+    /* ----- affichage d'une semaine ----- */
+    function load(){
+      box.innerHTML='<div class="dim">Chargement…</div>';
+      api({op:"get",pin:pin,week:fmt(wk)}).then(function(r){
+        if(r.ok)show(r);else{pin="";keypad("enter",null,'<span class="bad">Session expirée, entrez le code.</span>')}
+      }).catch(function(){box.innerHTML='<div class="bad">Connexion impossible.</div><button type="button" class="tbtn" id="caX">Fermer</button>';box.querySelector("#caX").onclick=close});
+    }
+    function sums(doc){
+      var o={days:{},wp:0,wpN:0,wpTrial:0,cp:0,cpN:0};
+      for(var i=0;i<7;i++)o.days[fmt(addDays(wk,i))]={wp:0,wpN:0,wpT:0,cp:0,cpN:0};
+      if(!doc)return o;
+      ((doc.wp&&doc.wp.rows)||[]).forEach(function(r){
+        var d=o.days[r[0]];if(!d)return;
+        if(r[4]){d.wpT++;o.wpTrial++}else{d.wp+=r[3];d.wpN++;o.wp+=r[3];o.wpN++}
+      });
+      ((doc.cp&&doc.cp.rows)||[]).forEach(function(r){
+        var d=o.days[r[0]];if(!d)return;
+        d.cp+=r[5];d.cpN+=r[4];o.cp+=r[5];o.cpN+=r[4];
+      });
+      return o;
+    }
+    function show(r){
+      var cur=sums(r.cur),end=addDays(wk,6),tot=cur.wp+cur.cp;
+      var pw=addDays(wk,-7),prevDoc=r.prev,tp=0;
+      if(prevDoc){((prevDoc.wp&&prevDoc.wp.rows)||[]).forEach(function(x){if(!x[4])tp+=x[3]});((prevDoc.cp&&prevDoc.cp.rows)||[]).forEach(function(x){tp+=x[5]})}
+      var cmp=prevDoc&&tp>0?((tot-tp)/tp*100):null;
+      var h='<div class="cahead"><h2>Chiffres de la semaine</h2><div class="row"><button type="button" class="tbtn" id="caPrev" aria-label="Semaine précédente">‹</button>'+
+        '<b>'+wk.getDate()+' '+wk.toLocaleDateString("fr-FR",{month:"short"})+' – '+end.getDate()+' '+end.toLocaleDateString("fr-FR",{month:"short",year:"numeric"})+'</b>'+
+        '<button type="button" class="tbtn" id="caNext" aria-label="Semaine suivante">›</button></div></div>';
+      if(!r.cur){
+        h+='<div class="dim">Pas encore de chiffres pour cette semaine. Lancez « Chiffres de la semaine » dans l\'extension de synchro.</div>';
+      }else{
+        h+='<div class="cacards"><div class="cacard"><span class="dim">Total TTC</span><b>'+eur(tot)+'</b>'+(cmp==null?'':'<span class="dim">'+(cmp>=0?'+':'')+cmp.toFixed(0)+' % vs sem. précédente</span>')+'</div>'+
+          '<div class="cacard"><span class="dim">Wellpass</span><b>'+eur(cur.wp)+'</b><span class="dim">'+cur.wpN+' séances payées · '+cur.wpTrial+' d\'essai (0 €)</span></div>'+
+          '<div class="cacard"><span class="dim">ClassPass</span><b>'+eur(cur.cp)+'</b><span class="dim">'+cur.cpN+' réservations</span></div></div>';
+        h+='<table><thead><tr><th>Jour</th><th>Wellpass</th><th>ClassPass</th><th>Total</th></tr></thead><tbody>';
+        for(var i=0;i<7;i++){
+          var k=fmt(addDays(wk,i)),d=cur.days[k];
+          h+='<tr><td>'+DOW[i]+' '+addDays(wk,i).getDate()+'</td><td>'+eur(d.wp)+' <span class="dim">('+d.wpN+(d.wpT?'+'+d.wpT+' essai':'')+')</span></td><td>'+eur(d.cp)+' <span class="dim">('+d.cpN+')</span></td><td>'+eur(d.wp+d.cp)+'</td></tr>';
+        }
+        h+='</tbody><tfoot><tr><td>Total</td><td>'+eur(cur.wp)+'</td><td>'+eur(cur.cp)+'</td><td>'+eur(tot)+'</td></tr></tfoot></table>';
+        var wr=((r.cur.wp&&r.cur.wp.rows)||[]).slice().sort(function(a,b){return (a[0]+a[1])<(b[0]+b[1])?-1:1});
+        h+='<details><summary>Détail Wellpass ('+wr.length+')</summary><table><thead><tr><th>Date</th><th>Heure</th><th>Nom</th><th>Statut</th><th>Montant</th></tr></thead><tbody>';
+        wr.forEach(function(x){h+='<tr><td>'+esc(x[0].slice(5).split("-").reverse().join("/"))+'</td><td>'+esc(x[1])+'</td><td style="text-align:left">'+esc(x[2])+'</td><td>'+esc(x[5]||"")+'</td><td>'+(x[4]?'Essai · 0 €':eur(x[3]))+'</td></tr>'});
+        h+='</tbody></table></details>';
+        var cr=((r.cur.cp&&r.cur.cp.rows)||[]).slice().sort(function(a,b){return (a[0]+a[1])<(b[0]+b[1])?-1:1});
+        h+='<details><summary>Détail ClassPass ('+cr.length+' cours)</summary><table><thead><tr><th>Date</th><th>Heure</th><th>Cours</th><th>Résa</th><th>Revenus</th></tr></thead><tbody>';
+        cr.forEach(function(x){h+='<tr><td>'+esc(x[0].slice(5).split("-").reverse().join("/"))+'</td><td>'+esc(x[1])+'</td><td style="text-align:left">'+esc(x[2])+'</td><td>'+x[4]+'</td><td>'+eur(x[5])+'</td></tr>'});
+        h+='</tbody></table></details>';
+        if(r.cur.updated)h+='<div class="dim">Mis à jour le '+new Date(r.cur.updated).toLocaleString("fr-FR")+'. Wellpass : 17 € TTC par séance enregistrée ou annulée tardivement, hors première séance de chaque personne.</div>';
+      }
+      h+='<div class="row"><button type="button" class="tbtn" id="caChg">Changer le code</button><button type="button" class="tbtn" id="caX">Fermer</button></div>';
+      box.innerHTML=h;
+      box.querySelector("#caPrev").onclick=function(){wk=addDays(wk,-7);load()};
+      box.querySelector("#caNext").onclick=function(){wk=addDays(wk,7);load()};
+      box.querySelector("#caChg").onclick=function(){keypad("change")};
+      box.querySelector("#caX").onclick=close;
+    }
+    btn.onclick=open;
+  })();
+
   (function importResa(){
     var bar=$("dirNav");if(!bar)return;
     var btn=document.createElement("button");
