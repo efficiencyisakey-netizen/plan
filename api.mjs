@@ -911,6 +911,65 @@ async function fetchRange(store, from, to) {
   }));
   return [].concat(...parts);
 }
+// ---------- chiffres de la semaine (code à 4 chiffres) ----------
+async function caHash(pin, salt) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(salt + ":" + pin));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function caMondayOk(w) {
+  return ISO.test(w) && new Date(w + "T12:00:00Z").getUTCDay() === 1;
+}
+async function caHandler(r) {
+  const st = getStore({ name: "ca", consistency: "strong" });
+  const op = String(r.op || ""), pin = String(r.pin || "");
+  const sec = await st.get("secret", { type: "json" });
+  if (op === "status") return json({ ok: true, hasPin: !!sec });
+  if (!/^\d{4}$/.test(pin)) return json({ ok: false, error: "pin" });
+  const now = Date.now();
+  const lock = await st.get("lock", { type: "json" }) || { fails: 0, until: 0 };
+  if (lock.until > now) return json({ ok: false, error: "locked", wait: Math.ceil((lock.until - now) / 1e3) });
+  if (!sec) {
+    if (op !== "setpin") return json({ ok: false, error: "nopin" });
+    const salt = crypto.randomUUID();
+    const res = await st.setJSON("secret", { salt, hash: await caHash(pin, salt) }, { onlyIfNew: true });
+    return json({ ok: !!res.modified });
+  }
+  if (await caHash(pin, sec.salt) !== sec.hash) {
+    lock.fails = (lock.fails || 0) + 1;
+    if (lock.fails >= 5) {
+      lock.until = now + 10 * 60 * 1e3;
+      lock.fails = 0;
+    }
+    await st.setJSON("lock", lock);
+    return json({ ok: false, error: lock.until > now ? "locked" : "badpin", wait: lock.until > now ? 600 : 0 });
+  }
+  if (lock.fails || lock.until) await st.setJSON("lock", { fails: 0, until: 0 });
+  if (op === "check") return json({ ok: true });
+  if (op === "setpin") {
+    const np = String(r.newPin || "");
+    if (!/^\d{4}$/.test(np)) return json({ ok: false, error: "pin" });
+    const salt = crypto.randomUUID();
+    await st.setJSON("secret", { salt, hash: await caHash(np, salt) });
+    return json({ ok: true });
+  }
+  if (op === "get") {
+    const week = String(r.week || "");
+    if (!caMondayOk(week)) return json({ ok: false, error: "week" });
+    const prev = new Date(new Date(week + "T12:00:00Z").getTime() - 7 * 864e5).toISOString().slice(0, 10);
+    const [cur, pre, list] = await Promise.all([st.get("w-" + week, { type: "json" }), st.get("w-" + prev, { type: "json" }), st.list({ prefix: "w-" })]);
+    return json({ ok: true, cur, prev: pre, weeks: list.blobs.map((b) => b.key.slice(2)).sort() });
+  }
+  if (op === "put") {
+    const week = String(r.week || ""), doc = r.doc;
+    if (!caMondayOk(week) || !isObj(doc)) return json({ ok: false, error: "week" });
+    const txt = JSON.stringify(doc);
+    if (txt.length > 4e5) return json({ ok: false, error: "size" });
+    await st.setJSON("w-" + week, { ...doc, week, updated: (/* @__PURE__ */ new Date()).toISOString() });
+    return json({ ok: true });
+  }
+  return json({ ok: false, error: "unknown" });
+}
+
 var api_default = async (req) => {
   if (req.method !== "POST") return json({ ok: false, error: "method" }, 405);
   let r;
@@ -924,6 +983,7 @@ var api_default = async (req) => {
   const extras = conf.coaches;
   if (r.action === "coaches") return json({ ok: true, coaches: extras });
   if (r.action === "config") return json({ ok: true, config: conf });
+if (r.action === "ca") return await caHandler(r);
   const who = String(r.who || "");
   const NAMES = BASE.concat(extras, ["Direction"]);
   if (!NAMES.includes(who)) return json({ ok: false, error: "auth" });
