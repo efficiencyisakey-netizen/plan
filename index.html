@@ -1815,18 +1815,65 @@ td.est{color:var(--muted);font-style:italic}
         h+='</tbody></table></details>';
         if(r.cur.updated)h+='<div class="dim">Mis à jour le '+new Date(r.cur.updated).toLocaleString("fr-FR")+'. Wellpass : 17 € TTC par séance enregistrée ou annulée tardivement, hors première séance de chaque personne.</div>';
       }
-      h+='<div class="row"><button type="button" class="tbtn" id="caSt">Statistiques</button><button type="button" class="tbtn" id="caChg">Changer le code</button><button type="button" class="tbtn" id="caX">Fermer</button></div>';
+      h+='<div class="row"><button type="button" class="tbtn" id="caRg">Période libre</button><button type="button" class="tbtn" id="caSt">Statistiques</button><button type="button" class="tbtn" id="caChg">Changer le code</button><button type="button" class="tbtn" id="caX">Fermer</button></div>';
       box.innerHTML=h;
       box.querySelector("#caPrev").onclick=function(){wk=addDays(wk,-7);load()};
       box.querySelector("#caNext").onclick=function(){wk=addDays(wk,7);load()};
       box.querySelector("#caChg").onclick=function(){keypad("change")};
       box.querySelector("#caSt").onclick=function(){statsView()};
+      box.querySelector("#caRg").onclick=function(){rangeView()};
       box.querySelector("#caX").onclick=close;
+    }
+    /* ----- période libre (deux dates) ----- */
+    var rg={from:"",to:""};
+    function rangeView(res){
+      if(!rg.from){rg.from=fmt(wk);rg.to=fmt(addDays(wk,6))}
+      var h='<div class="cahead"><h2>Période libre</h2></div><div class="row"><input type="date" id="rgF" value="'+rg.from+'"> → <input type="date" id="rgT" value="'+rg.to+'"><button type="button" class="tbtn" id="rgGo">Calculer</button></div>';
+      h+=res||'<div class="dim">Choisissez deux dates sur le calendrier : le total additionne les semaines déjà calculées par l\'extension.</div>';
+      h+='<div class="row"><button type="button" class="tbtn" id="rgB">‹ Chiffres</button><button type="button" class="tbtn" id="caX">Fermer</button></div>';
+      box.innerHTML=h;
+      box.querySelector("#rgGo").onclick=function(){
+        var f=box.querySelector("#rgF").value,t=box.querySelector("#rgT").value;
+        if(!f||!t||f>t){toast("Choisissez deux dates (début ≤ fin).");return}
+        if((new Date(t+"T12:00:00")-new Date(f+"T12:00:00"))/864e5>120){toast("Période limitée à 120 jours.");return}
+        rg.from=f;rg.to=t;rangeCalc();
+      };
+      box.querySelector("#rgB").onclick=load;box.querySelector("#caX").onclick=close;
+    }
+    function rangeCalc(){
+      var f=rg.from,t=rg.to,mons=[];
+      for(var m=mondayOf(new Date(f+"T12:00:00"));fmt(m)<=t;m=addDays(m,7))mons.push(m);
+      var W=[],miss=[],part=[],p=Promise.resolve();
+      box.innerHTML='<div class="dim">Calcul…</div>';
+      mons.forEach(function(m){p=p.then(function(){return api({op:"get",pin:pin,week:fmt(m)}).then(function(r){
+        if(!r.ok)throw new Error("pin");
+        if(!r.cur){miss.push(m);return}
+        var o={wp:0,wpN:0,wpT:0,cp:0,cpN:0};
+        ((r.cur.wp&&r.cur.wp.rows)||[]).forEach(function(x){if(x[0]<f||x[0]>t)return;if(x[4])o.wpT++;else{o.wp+=x[3];o.wpN++}});
+        ((r.cur.cp&&r.cur.cp.rows)||[]).forEach(function(x){if(x[0]<f||x[0]>t)return;o.cp+=x[5];o.cpN+=x[4]});
+        if(r.cur.updated&&String(r.cur.updated).slice(0,10)<fmt(addDays(m,6)))part.push(m);
+        W.push({m:m,o:o});
+      })})});
+      p.then(function(){
+        var T={wp:0,wpN:0,wpT:0,cp:0,cpN:0};
+        W.forEach(function(w){Object.keys(T).forEach(function(k){T[k]+=w.o[k]})});
+        var d=function(x){return x.getDate()+"/"+(x.getMonth()+1)};
+        var h='<div class="cacards"><div class="cacard"><span class="dim">Total TTC</span><b>'+eur(T.wp+T.cp)+'</b></div>'+
+          '<div class="cacard"><span class="dim">Wellpass</span><b>'+eur(T.wp)+'</b><span class="dim">'+T.wpN+' séances payées · '+T.wpT+' d\'essai (0 €)</span></div>'+
+          '<div class="cacard"><span class="dim">ClassPass</span><b>'+eur(T.cp)+'</b><span class="dim">'+T.cpN+' réservations</span></div></div>';
+        h+='<table><thead><tr><th>Semaine du</th><th>Wellpass</th><th>ClassPass</th><th>Total</th></tr></thead><tbody>';
+        W.forEach(function(w){h+='<tr><td>'+d(w.m)+'</td><td>'+eur(w.o.wp)+'</td><td>'+eur(w.o.cp)+'</td><td>'+eur(w.o.wp+w.o.cp)+'</td></tr>'});
+        h+='</tbody><tfoot><tr><td>Total</td><td>'+eur(T.wp)+'</td><td>'+eur(T.cp)+'</td><td>'+eur(T.wp+T.cp)+'</td></tr></tfoot></table>';
+        if(miss.length)h+='<div class="bad">Semaines non calculées (non comptées) : '+miss.map(function(m){return d(m)}).join(", ")+'. Lancez-les depuis l\'extension.</div>';
+        if(part.length)h+='<div class="bad">Semaines calculées avant leur fin (incomplètes) : '+part.map(function(m){return d(m)}).join(", ")+'. Relancez-les depuis l\'extension.</div>';
+        rangeView(h);
+      }).catch(function(){pin="";keypad("enter",null,'<span class="bad">Session expirée, entrez le code.</span>')});
     }
     /* ----- statistiques : meilleurs clients, meilleurs cours, retour ----- */
     var st={mode:"week",ref:null,pres:true};
     function nk(n){return String(n||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim().split(" ").filter(Boolean).sort().join(" ")}
     function stRange(){
+      if(st.mode==="custom"&&st.from&&st.to)return [new Date(st.from+"T12:00:00"),new Date(st.to+"T12:00:00")];
       var d=st.ref||(st.ref=new Date());
       if(st.mode==="month")return [new Date(d.getFullYear(),d.getMonth(),1),new Date(d.getFullYear(),d.getMonth()+1,0)];
       var m=mondayOf(d);return [m,addDays(m,6)];
@@ -1882,6 +1929,7 @@ td.est{color:var(--muted);font-style:italic}
     }
     function statsView(){
       var r=stRange(),a=r[0],b=r[1];
+      if((b-a)/864e5>120){toast("Période limitée à 120 jours.");return}
       box.innerHTML='<div class="dim">Calcul des statistiques…</div>';
       Promise.all([grab(a,b),grab(addDays(a,-56),addDays(a,-1))]).then(function(x){drawStats(a,b,computeStats(x[0],x[1],st.pres))}).catch(function(){
         box.innerHTML='<div class="bad">Chargement impossible.</div><button type="button" class="tbtn" id="caX">Retour</button>';
@@ -1891,8 +1939,8 @@ td.est{color:var(--muted);font-style:italic}
     function drawStats(a,b,R){
       var pc=function(x,n){return n?Math.round(x/n*100)+" %":"–"},N=R.clients.length;
       var lbl=st.mode==="month"?a.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}):a.getDate()+" "+a.toLocaleDateString("fr-FR",{month:"short"})+" – "+b.getDate()+" "+b.toLocaleDateString("fr-FR",{month:"short",year:"numeric"});
-      var h='<div class="cahead"><h2>Statistiques</h2><div class="row"><button type="button" class="tbtn" id="stW">'+(st.mode==="week"?"● ":"")+'Semaine</button><button type="button" class="tbtn" id="stM">'+(st.mode==="month"?"● ":"")+'Mois</button></div></div>'+
-        '<div class="cahead"><div class="row"><button type="button" class="tbtn" id="stP" aria-label="Période précédente">‹</button><b>'+esc(lbl)+'</b><button type="button" class="tbtn" id="stN" aria-label="Période suivante">›</button></div>'+
+      var h='<div class="cahead"><h2>Statistiques</h2><div class="row"><button type="button" class="tbtn" id="stW">'+(st.mode==="week"?"● ":"")+'Semaine</button><button type="button" class="tbtn" id="stM">'+(st.mode==="month"?"● ":"")+'Mois</button><button type="button" class="tbtn" id="stC">'+(st.mode==="custom"?"● ":"")+'Dates</button></div></div>'+
+        '<div class="cahead">'+(st.mode==="custom"?'<div class="row"><input type="date" id="stF" value="'+fmt(a)+'"> → <input type="date" id="stT" value="'+fmt(b)+'"></div>':'<div class="row"><button type="button" class="tbtn" id="stP" aria-label="Période précédente">‹</button><b>'+esc(lbl)+'</b><button type="button" class="tbtn" id="stN" aria-label="Période suivante">›</button></div>')+
         '<label class="dim"><input type="checkbox" id="stPres"'+(st.pres?" checked":"")+'> Présents seulement</label></div>';
       function topC(n){
         var t='<table><thead><tr><th>#</th><th>Client</th><th>Venues</th><th>Source</th></tr></thead><tbody>';
@@ -1920,9 +1968,11 @@ td.est{color:var(--muted);font-style:italic}
       var q=function(i){return box.querySelector(i)};
       q("#stW").onclick=function(){st.mode="week";st.ref=a;statsView()};
       q("#stM").onclick=function(){st.mode="month";st.ref=a;statsView()};
-      q("#stP").onclick=function(){st.ref=st.mode==="month"?new Date(a.getFullYear(),a.getMonth()-1,1):addDays(a,-7);statsView()};
-      q("#stN").onclick=function(){st.ref=st.mode==="month"?new Date(a.getFullYear(),a.getMonth()+1,1):addDays(a,7);statsView()};
+      if(q("#stP"))q("#stP").onclick=function(){st.ref=st.mode==="month"?new Date(a.getFullYear(),a.getMonth()-1,1):addDays(a,-7);statsView()};
+      if(q("#stN"))q("#stN").onclick=function(){st.ref=st.mode==="month"?new Date(a.getFullYear(),a.getMonth()+1,1):addDays(a,7);statsView()};
       q("#stPres").onchange=function(){st.pres=this.checked;statsView()};
+      q("#stC").onclick=function(){st.mode="custom";st.from=fmt(a);st.to=fmt(b);statsView()};
+      if(q("#stF"))q("#stF").onchange=q("#stT").onchange=function(){var f=q("#stF").value,t=q("#stT").value;if(f&&t&&f<=t){st.from=f;st.to=t;statsView()}else toast("Choisissez deux dates (début ≤ fin).")};
       q("#stB").onclick=load;q("#caX").onclick=close;
     }
     btn.onclick=open;
